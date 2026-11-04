@@ -22,6 +22,12 @@ interface EffectNodes {
   dry: GainNode;
   wet: GainNode;
   output: GainNode;
+  splitter: ChannelSplitterNode;
+  merger: ChannelMergerNode;
+  leftFromLeft: GainNode;
+  leftFromRight: GainNode;
+  rightFromLeft: GainNode;
+  rightFromRight: GainNode;
 }
 
 function setValue(parameter: AudioParam, value: number, context: BaseAudioContext) {
@@ -67,12 +73,30 @@ function createEffects(context: BaseAudioContext, settings: AudioSettings, envir
   const dry = context.createGain();
   const wet = context.createGain();
   const output = context.createGain();
+  const splitter = context.createChannelSplitter(2);
+  splitter.channelCount = 2;
+  splitter.channelCountMode = "explicit";
+  const merger = context.createChannelMerger(2);
+  const leftFromLeft = context.createGain();
+  const leftFromRight = context.createGain();
+  const rightFromLeft = context.createGain();
+  const rightFromRight = context.createGain();
   dry.gain.value = bypassed ? 1 : 0;
   wet.gain.value = bypassed ? 0 : 1;
   output.gain.value = outputGain;
 
-  const nodes = { low, lowMid, highMid, high, compressor, limiter, environmentLow, environmentMid, environmentHigh, hardCeiling, dry, wet, output };
+  const nodes = { low, lowMid, highMid, high, compressor, limiter, environmentLow, environmentMid, environmentHigh, hardCeiling, dry, wet, output, splitter, merger, leftFromLeft, leftFromRight, rightFromLeft, rightFromRight };
   updateEffects(nodes, context, settings, environment, bypassed, outputGain);
+  output.connect(splitter);
+  splitter.connect(leftFromLeft, 0);
+  splitter.connect(leftFromRight, 1);
+  splitter.connect(rightFromLeft, 0);
+  splitter.connect(rightFromRight, 1);
+  leftFromLeft.connect(merger, 0, 0);
+  leftFromRight.connect(merger, 0, 0);
+  rightFromLeft.connect(merger, 0, 1);
+  rightFromRight.connect(merger, 0, 1);
+  merger.connect(context.destination);
   return nodes;
 }
 
@@ -104,6 +128,14 @@ function updateEffects(nodes: EffectNodes, context: BaseAudioContext, settings: 
   setValue(nodes.dry.gain, bypassed ? 1 : 0, context);
   setValue(nodes.wet.gain, bypassed ? 0 : 1, context);
   setValue(nodes.output.gain, outputGain, context);
+
+  const pan = Math.max(-1, Math.min(1, settings.pan));
+  const leftLevel = pan > 0 ? 1 - pan : 1;
+  const rightLevel = pan < 0 ? 1 + pan : 1;
+  setValue(nodes.leftFromLeft.gain, settings.mono ? leftLevel / 2 : leftLevel, context);
+  setValue(nodes.leftFromRight.gain, settings.mono ? leftLevel / 2 : 0, context);
+  setValue(nodes.rightFromLeft.gain, settings.mono ? rightLevel / 2 : 0, context);
+  setValue(nodes.rightFromRight.gain, settings.mono ? rightLevel / 2 : rightLevel, context);
 }
 
 export function connectAudioEffects(
@@ -129,7 +161,6 @@ export function connectAudioEffects(
   nodes.environmentHigh.connect(nodes.hardCeiling);
   nodes.hardCeiling.connect(nodes.wet);
   nodes.wet.connect(nodes.output);
-  nodes.output.connect(context.destination);
   return nodes;
 }
 

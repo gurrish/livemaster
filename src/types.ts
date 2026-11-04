@@ -14,6 +14,8 @@ export interface AudioSettings {
     release: number;
   };
   limiterCeiling: number;
+  mono: boolean;
+  pan: number;
 }
 
 export interface Preset {

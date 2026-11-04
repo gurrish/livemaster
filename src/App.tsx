@@ -8,6 +8,8 @@ const initialSettings: AudioSettings = {
   eq: { low: 0, lowMid: 0, highMid: 0, high: 0 },
   compressor: { threshold: -18, ratio: 4, attack: 0.003, release: 0.25 },
   limiterCeiling: -1,
+  mono: false,
+  pan: 0,
 };
 
 const environments: { id: Environment; label: string; description: string }[] = [
@@ -233,7 +235,8 @@ export default function App() {
     if (!playing) return;
     const timer = window.setInterval(() => {
       const context = audioContext.current;
-      if (context) setPlayhead(Math.min(audioBuffer?.duration ?? 0, playbackOffset.current + context.currentTime - startedAt.current));
+      const duration = audioBuffer?.duration ?? 0;
+      if (context && duration > 0) setPlayhead((playbackOffset.current + context.currentTime - startedAt.current) % duration);
       const activeEffects = effects.current;
       if (activeEffects) {
         setGainReduction({
@@ -294,6 +297,7 @@ export default function App() {
       await context.resume();
       const player = context.createBufferSource();
       player.buffer = audioBuffer;
+      player.loop = true;
       effects.current = connectAudioEffects(player, context, settings, environment, bypassed, normalizationGain);
       setGainReduction({ compressor: 0, limiter: 0 });
       source.current = player;
@@ -476,7 +480,7 @@ export default function App() {
 
       {loading ? <div className="access-card">Kontrollerar inloggning…</div>
         : <div className="workspace">
-          <section className="panel file-panel">
+          <section className={`panel file-panel${viewer.signedIn ? "" : " file-panel-wide"}`}>
             <div className="panel-heading"><div><span className="eyebrow">01 / LJUDKÄLLA</span><h2>Ljudfil</h2></div><span className="panel-index"><AudioLines size={18} /></span></div>
             <input ref={selectedFile} className="visually-hidden" type="file" accept=".wav,audio/wav,audio/x-wav" onChange={(event) => void handleFile(event)} />
             <button className={`drop-zone${audioBuffer ? " loaded" : ""}`} onClick={() => selectedFile.current?.click()} disabled={loadingAudio}>
@@ -490,6 +494,21 @@ export default function App() {
               <input className="seek-slider" type="range" min="0" max={audioBuffer?.duration ?? 0} step="0.01" value={currentTime} disabled={!audioBuffer} onChange={(event) => seek(Number(event.target.value))} aria-label="Uppspelningsposition" />
               <span className="time-readout">{timeLabel(audioBuffer?.duration ?? 0)}</span>
               <button className={`bypass-toggle${bypassed ? " active" : ""}`} type="button" onClick={() => setBypassed((value) => !value)} aria-pressed={bypassed} aria-label={bypassed ? "Stäng av A/B-bypass och lyssna på behandlat ljud" : "Aktivera A/B-bypass och lyssna på obehandlat ljud"}><span>A/B</span><small>{bypassed ? "OBEHANDLAT" : "BEHANDLAT"}</small></button>
+            </div>
+            <div className="channel-controls">
+              <label className="mono-option">
+                <input type="checkbox" checked={settings.mono} onChange={(event) => setSettings((current) => ({ ...current, mono: event.target.checked }))} />
+                <span>Lyssna i mono</span>
+              </label>
+              <RangeControl
+                label="Panorering"
+                value={settings.pan}
+                min={-1}
+                max={1}
+                step={0.01}
+                format={(value) => value === 0 ? "CENTER" : `${value < 0 ? "V" : "H"} ${Math.round(Math.abs(value) * 100)}%`}
+                onChange={(value) => setSettings((current) => ({ ...current, pan: value }))}
+              />
             </div>
             <p className="privacy-note"><ShieldCheck size={14} /> Filer spelas upp i webbläsaren. Spara till Azure om du vill öppna dem på fler enheter.</p>
             {localFile && viewer.isAdmin && <button className="button button-dark save-track" onClick={() => void saveTrackToAzure()} disabled={uploadingTrack}>{uploadingTrack ? <span className="spinner" /> : <Save size={15} />}{uploadingTrack ? ` Sparar i Azure… ${uploadProgress}%` : " Spara i Azure"}</button>}

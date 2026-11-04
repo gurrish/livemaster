@@ -1,6 +1,6 @@
 # Livemaster
 
-Livemaster is a browser-based audio testing workspace for WAV mixes. Anyone can adjust a four-band EQ with low and high mids, compressor and limiter; compare processed and bypassed audio with a one-click A/B switch; audition simplified listening-environment profiles; and export a processed WAV file. Administrators can also save shared presets and WAV files to Azure. The interface is in Swedish, with a dark mixing-console faceplate and a warm vintage-style EQ section.
+Livemaster is a browser-based audio testing workspace for WAV mixes. Anyone can adjust a four-band EQ with low and high mids, compressor and limiter; listen in mono or pan left and right; repeat playback until stopped; compare processed and bypassed audio with a one-click A/B switch; audition simplified listening-environment profiles; and export a processed WAV file. Administrators can also save shared presets and WAV files to Azure. The interface is in Swedish, with a dark mixing-console faceplate and a warm vintage-style EQ section.
 
 ## Architecture
 

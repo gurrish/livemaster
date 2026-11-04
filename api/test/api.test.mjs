@@ -82,6 +82,8 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
       eq: { low: 2, lowMid: 3, highMid: 4, high: -1 },
       compressor: { threshold: -18, ratio: 4, attack: 0.003, release: 0.25 },
       limiterCeiling: -1,
+      mono: false,
+      pan: 0,
     },
     environment: "studio",
   };
@@ -132,6 +134,8 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
       eq: { low: 2, lowMid: 3, highMid: 4, high: -1 },
       compressor: { threshold: -18, ratio: 4, attack: 0.003, release: 0.25 },
       limiterCeiling: -1,
+      mono: false,
+      pan: 0,
     },
     environment: "studio",
   };
@@ -148,7 +152,7 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
   const legacyPresetInput = {
     ...presetInput,
     name: "Legacy mix",
-    settings: { ...presetInput.settings, eq: { low: 2, mid: 5, high: -1 } },
+    settings: { eq: { low: 2, mid: 5, high: -1 }, compressor: presetInput.settings.compressor, limiterCeiling: -1 },
   };
   const createdLegacyPreset = await handle(request("/api/presets", "POST", {
     ...adminHeaders,
@@ -158,12 +162,19 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
   const legacyPreset = await createdLegacyPreset.json();
   assert.equal(legacyPreset.settings.eq.lowMid, 0);
   assert.equal(legacyPreset.settings.eq.highMid, 5);
+  assert.equal(legacyPreset.settings.mono, false);
+  assert.equal(legacyPreset.settings.pan, 0);
 
   const invalidPreset = await handle(request("/api/presets", "POST", {
     ...adminHeaders,
     "content-type": "application/json",
   }, JSON.stringify({ ...presetInput, settings: { ...presetInput.settings, limiterCeiling: 5 } })), context);
   assert.equal(invalidPreset.status, 400);
+  const invalidPan = await handle(request("/api/presets", "POST", {
+    ...adminHeaders,
+    "content-type": "application/json",
+  }, JSON.stringify({ ...presetInput, settings: { ...presetInput.settings, pan: 1.1 } })), context);
+  assert.equal(invalidPan.status, 400);
 
   assert.equal((await handle(request(`/api/presets/${preset.id}`, "DELETE", adminHeaders), context)).status, 200);
   assert.equal((await handle(request(`/api/presets/${legacyPreset.id}`, "DELETE", adminHeaders), context)).status, 200);

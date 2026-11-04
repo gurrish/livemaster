@@ -57,6 +57,7 @@ a { color: inherit; text-decoration: none; }
 .workspace { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; padding: 50px clamp(24px, 8vw, 125px) 75px; }
 .panel { min-width: 0; padding: 22px 23px; border: 1px solid var(--line); background: #faf9f5; }
 .file-panel { grid-column: span 7; }
+.file-panel-wide { grid-column: 1 / -1; }
 .preset-panel { grid-column: span 5; }
 .eq-panel { grid-column: span 6; }
 .dynamics-panel { grid-column: span 6; }
@@ -76,6 +77,14 @@ a { color: inherit; text-decoration: none; }
 .play-button svg { margin-left: 2px; }
 .time-readout { min-width: 32px; color: #74766d; font: 9px var(--mono); }
 .seek-slider { width: 100%; accent-color: var(--orange); }
+.channel-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, .7fr); align-items: center; gap: 12px; margin-top: 16px; padding-top: 13px; border-top: 1px solid #485048; }
+.mono-option { display: flex; align-items: center; gap: 8px; color: #d5dbd1; font-size: 10px; }
+.mono-option input { width: 15px; height: 15px; margin: 0; accent-color: #d6ae5b; }
+.channel-controls .range-control { gap: 5px; }
+.channel-controls .knob { width: 54px; height: 54px; }
+.channel-controls .knob-cap { width: 42px; height: 42px; }
+.channel-controls .knob-cap i { top: 4px; height: 11px; transform-origin: 50% 17px; }
+.channel-controls .knob-track { inset: 2px; }
 .privacy-note { display: flex; align-items: flex-start; gap: 7px; margin: 14px 0 0; color: #7d8277; font-size: 10px; line-height: 1.6; }
 .privacy-note svg { flex: none; margin-top: 1px; color: var(--green); }
 .save-track { width: 100%; margin-top: 12px; }

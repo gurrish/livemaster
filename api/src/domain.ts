@@ -22,6 +22,8 @@ export const audioSettingsSchema = z.object({
     release: z.number().min(0.01).max(1),
   }).strict(),
   limiterCeiling: z.number().min(-12).max(0),
+  mono: z.boolean().default(false),
+  pan: z.number().min(-1).max(1).default(0),
 }).strict();
 
 export type AudioSettings = z.infer<typeof audioSettingsSchema>;
