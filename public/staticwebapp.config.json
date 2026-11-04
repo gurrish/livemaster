@@ -6,5 +6,5 @@
   "routes": [
     { "route": "/*", "allowedRoles": ["anonymous"] }
   ],
-  "platform": { "apiRuntime": "node:20" }
+  "platform": { "apiRuntime": "node:22" }
 }

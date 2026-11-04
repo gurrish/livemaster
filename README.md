@@ -1,6 +1,6 @@
 # Livemaster
 
-Livemaster is a browser-based audio testing workspace for WAV mixes. Administrators can adjust a three-band EQ, compressor and limiter; compare simplified listening-environment profiles; save shared processing presets; and export processed audio as a new WAV file. The interface is in Swedish.
+Livemaster is a browser-based audio testing workspace for WAV mixes. Administrators can adjust a three-band EQ, compressor and limiter; compare processed and bypassed audio with a one-click A/B switch; audition simplified listening-environment profiles; save shared processing presets; and export the selected signal as a new WAV file. The interface is in Swedish, with a dark mixing-console faceplate and a warm vintage-style EQ section.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ WAV files are decoded and processed in the browser. Selecting a file does not up
 
 ## Local development
 
-Prerequisites: Node.js 20+, npm, Azure Functions Core Tools v4, and Azurite.
+Prerequisites: Node.js 22+, npm, Azure Functions Core Tools v4, and Azurite.
 
 1. Install frontend and API dependencies:
 

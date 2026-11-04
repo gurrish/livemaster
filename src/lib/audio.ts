@@ -18,13 +18,15 @@ interface EffectNodes {
   environmentMid: BiquadFilterNode;
   environmentHigh: BiquadFilterNode;
   hardCeiling: WaveShaperNode;
+  dry: GainNode;
+  wet: GainNode;
 }
 
 function setValue(parameter: AudioParam, value: number, context: BaseAudioContext) {
   parameter.setTargetAtTime(value, context.currentTime, 0.015);
 }
 
-function createEffects(context: BaseAudioContext, settings: AudioSettings, environment: Environment): EffectNodes {
+function createEffects(context: BaseAudioContext, settings: AudioSettings, environment: Environment, bypassed: boolean): EffectNodes {
   const low = context.createBiquadFilter();
   low.type = "lowshelf";
   low.frequency.value = 120;
@@ -56,13 +58,17 @@ function createEffects(context: BaseAudioContext, settings: AudioSettings, envir
   environmentHigh.Q.value = 0.707;
   const hardCeiling = context.createWaveShaper();
   hardCeiling.oversample = "4x";
+  const dry = context.createGain();
+  const wet = context.createGain();
+  dry.gain.value = bypassed ? 1 : 0;
+  wet.gain.value = bypassed ? 0 : 1;
 
-  const nodes = { low, mid, high, compressor, limiter, environmentLow, environmentMid, environmentHigh, hardCeiling };
-  updateEffects(nodes, context, settings, environment);
+  const nodes = { low, mid, high, compressor, limiter, environmentLow, environmentMid, environmentHigh, hardCeiling, dry, wet };
+  updateEffects(nodes, context, settings, environment, bypassed);
   return nodes;
 }
 
-function updateEffects(nodes: EffectNodes, context: BaseAudioContext, settings: AudioSettings, environment: Environment) {
+function updateEffects(nodes: EffectNodes, context: BaseAudioContext, settings: AudioSettings, environment: Environment, bypassed: boolean) {
   setValue(nodes.low.gain, settings.eq.low, context);
   setValue(nodes.mid.gain, settings.eq.mid, context);
   setValue(nodes.high.gain, settings.eq.high, context);
@@ -79,13 +85,15 @@ function updateEffects(nodes: EffectNodes, context: BaseAudioContext, settings: 
   setValue(nodes.environmentLow.Q, 0.707, context);
   setValue(nodes.environmentHigh.Q, 0.707, context);
   setValue(nodes.low.gain, settings.eq.low + profile.bass, context);
-  const ceiling = 10 ** (settings.limiterCeiling / 20);
+  const ceiling = bypassed ? 1 : 10 ** (settings.limiterCeiling / 20);
   const curve = new Float32Array(32_769);
   for (let index = 0; index < curve.length; index += 1) {
     const sample = (index / (curve.length - 1)) * 2 - 1;
     curve[index] = Math.max(-ceiling, Math.min(ceiling, sample));
   }
   nodes.hardCeiling.curve = curve;
+  setValue(nodes.dry.gain, bypassed ? 1 : 0, context);
+  setValue(nodes.wet.gain, bypassed ? 0 : 1, context);
 }
 
 export function connectAudioEffects(
@@ -93,8 +101,11 @@ export function connectAudioEffects(
   context: BaseAudioContext,
   settings: AudioSettings,
   environment: Environment,
+  bypassed = false,
 ): EffectNodes {
-  const nodes = createEffects(context, settings, environment);
+  const nodes = createEffects(context, settings, environment, bypassed);
+  source.connect(nodes.dry);
+  nodes.dry.connect(context.destination);
   source.connect(nodes.low);
   nodes.low.connect(nodes.mid);
   nodes.mid.connect(nodes.high);
@@ -104,7 +115,8 @@ export function connectAudioEffects(
   nodes.environmentLow.connect(nodes.environmentMid);
   nodes.environmentMid.connect(nodes.environmentHigh);
   nodes.environmentHigh.connect(nodes.hardCeiling);
-  nodes.hardCeiling.connect(context.destination);
+  nodes.hardCeiling.connect(nodes.wet);
+  nodes.wet.connect(context.destination);
   return nodes;
 }
 
@@ -113,19 +125,21 @@ export function updateAudioEffects(
   context: BaseAudioContext | null,
   settings: AudioSettings,
   environment: Environment,
+  bypassed: boolean,
 ) {
-  if (nodes && context) updateEffects(nodes, context, settings, environment);
+  if (nodes && context) updateEffects(nodes, context, settings, environment, bypassed);
 }
 
 export async function renderWav(
   input: AudioBuffer,
   settings: AudioSettings,
   environment: Environment,
+  bypassed: boolean,
 ): Promise<Blob> {
   const context = new OfflineAudioContext(input.numberOfChannels, input.length, input.sampleRate);
   const source = context.createBufferSource();
   source.buffer = input;
-  connectAudioEffects(source, context, settings, environment);
+  connectAudioEffects(source, context, settings, environment, bypassed);
   source.start();
   const rendered = await context.startRendering();
   const channels = rendered.numberOfChannels;

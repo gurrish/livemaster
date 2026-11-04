@@ -32,6 +32,7 @@ export default function App() {
   const [presetName, setPresetName] = useState("");
   const [settings, setSettings] = useState<AudioSettings>(initialSettings);
   const [environment, setEnvironment] = useState<Environment>("studio");
+  const [bypassed, setBypassed] = useState(false);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [fileName, setFileName] = useState("");
   const [localFile, setLocalFile] = useState<File | null>(null);
@@ -142,8 +143,8 @@ export default function App() {
   useEffect(() => { void loadWorkspace(); }, []);
 
   useEffect(() => {
-    updateAudioEffects(effects.current, audioContext.current, settings, environment);
-  }, [settings, environment]);
+    updateAudioEffects(effects.current, audioContext.current, settings, environment, bypassed);
+  }, [settings, environment, bypassed]);
 
   useEffect(() => {
     if (!playing) return;
@@ -202,7 +203,7 @@ export default function App() {
       await context.resume();
       const player = context.createBufferSource();
       player.buffer = audioBuffer;
-      effects.current = connectAudioEffects(player, context, settings, environment);
+      effects.current = connectAudioEffects(player, context, settings, environment, bypassed);
       source.current = player;
       const offset = currentTimeRef.current >= audioBuffer.duration ? 0 : currentTimeRef.current;
       playbackOffset.current = offset;
@@ -309,14 +310,14 @@ export default function App() {
     setExporting(true);
     setError("");
     try {
-      const rendered = await renderWav(audioBuffer, settings, environment);
+      const rendered = await renderWav(audioBuffer, settings, environment, bypassed);
       const link = document.createElement("a");
       link.href = URL.createObjectURL(rendered);
       const safeName = fileName.replace(/[\u0000-\u001f<>:"/\\|?*]/g, "_").replace(/\.wav$/i, "") || "livemaster";
       link.download = `${safeName}-livemaster.wav`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(link.href), 30_000);
-      setNotice("Den bearbetade WAV-filen har laddats ned.");
+      setNotice(bypassed ? "Den obehandlade WAV-filen har laddats ned." : "Den bearbetade WAV-filen har laddats ned.");
     } catch {
       setError("Det gick inte att skapa den bearbetade ljudfilen. Prova med en kortare fil.");
     } finally {
@@ -359,7 +360,7 @@ export default function App() {
   return <div className="app-shell">
     <header className="topbar">
       <a className="brand" href="#" aria-label="Livemaster – etusivu"><span className="brand-icon"><AudioLines size={21} /></span><span>live<strong>master</strong></span></a>
-      <span className="topbar-note">LJUDVERKTYG I WEBBLÄSAREN</span>
+      <span className="topbar-note">STEREO BUSS · KONTROLLRUM 01</span>
       {viewer.isAdmin
         ? <button className="account-button" onClick={signOut}><LogOut size={15} /> Logga ut</button>
         : viewer.signedIn
@@ -370,11 +371,11 @@ export default function App() {
     <main>
       <section className="intro">
         <div>
-          <span className="eyebrow"><span className="status-dot" /> LJUDREDIGERING &amp; LYSSNINGSTEST</span>
+          <span className="eyebrow"><span className="status-dot" /> ANALOG SIGNALKEDJA · DIGITAL PRECISION</span>
           <h1>Lyssna.<br /><em>Justera. Jämför.</em></h1>
           <p>Ladda en WAV-fil, prova equalizer och dynamik och jämför hur mixen låter i olika lyssningsmiljöer.</p>
         </div>
-        <div className="intro-art" aria-hidden="true"><div className="meter meter-one"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><div className="meter meter-two"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><div className="intro-disc"><AudioLines size={52} strokeWidth={1} /></div><span className="intro-caption">LYSSNA PÅ VARJE JUSTERING</span></div>
+        <div className="intro-art" aria-hidden="true"><div className="meter meter-one"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><div className="meter meter-two"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><div className="intro-disc"><AudioLines size={52} strokeWidth={1} /></div><span className="intro-caption">CLASS A · ANALOGT TÄNK · DIGITALT ARBETE</span></div>
         <div className="intro-foot"><span>EQ · KOMPRESSOR · LIMITER</span><span>UPPSPELNING · WAV-EXPORT</span><span>01 / LJUDVERKTYG</span></div>
       </section>
 
@@ -383,7 +384,7 @@ export default function App() {
           <div className="access-icon"><ShieldCheck size={27} /></div>
           <span className="eyebrow">BEHÖRIGHET KRÄVS</span>
           <h2>{viewer.signedIn ? "Kontot saknar administratörsbehörighet." : "Logga in för att fortsätta."}</h2>
-          <p>{viewer.signedIn ? `Kontot ${viewer.email ?? ""} finns inte i GLOBAL_ADMIN_EMAILS.` : "Ljudverktyget är endast tillgängligt för inloggade GLOBAL_ADMIN_EMAILS-administratörer."}</p>
+          {viewer.signedIn && <p>Kontot {viewer.email ?? ""} har inte behörighet att använda mixern.</p>}
           {!viewer.signedIn && <button className="button button-dark" onClick={signIn}><LogIn size={16} /> Logga in</button>}
           {error && <div className="alert" role="alert">{error}</div>}
         </section> : <div className="workspace">
@@ -400,6 +401,7 @@ export default function App() {
               <span className="time-readout">{timeLabel(currentTime)}</span>
               <input className="seek-slider" type="range" min="0" max={audioBuffer?.duration ?? 0} step="0.01" value={currentTime} disabled={!audioBuffer} onChange={(event) => seek(Number(event.target.value))} aria-label="Uppspelningsposition" />
               <span className="time-readout">{timeLabel(audioBuffer?.duration ?? 0)}</span>
+              <button className={`bypass-toggle${bypassed ? " active" : ""}`} type="button" onClick={() => setBypassed((value) => !value)} aria-pressed={bypassed} aria-label={bypassed ? "Stäng av A/B-bypass och lyssna på behandlat ljud" : "Aktivera A/B-bypass och lyssna på obehandlat ljud"}><span>A/B</span><small>{bypassed ? "OBEHANDLAT" : "BEHANDLAT"}</small></button>
             </div>
             <p className="privacy-note"><ShieldCheck size={14} /> Filer spelas upp i webbläsaren. Spara till Azure om du vill öppna dem på fler enheter.</p>
             {localFile && <button className="button button-dark save-track" onClick={() => void saveTrackToAzure()} disabled={uploadingTrack}>{uploadingTrack ? <span className="spinner" /> : <Save size={15} />}{uploadingTrack ? " Sparar i Azure…" : " Spara i Azure"}</button>}
@@ -424,7 +426,7 @@ export default function App() {
             <div className="preset-actions">
               <button className="button button-dark" onClick={() => void saveCurrentPreset(false)} disabled={savingPreset}><Save size={15} /> Spara ny</button>
               <button className="button button-light" onClick={() => void saveCurrentPreset(true)} disabled={savingPreset || !selectedPresetId}>Uppdatera vald</button>
-              {selectedPresetId && <button className="icon-action danger" onClick={() => void removePreset()} disabled={savingPreset} aria-label="Poista valittu esiasetus"><Trash2 size={16} /></button>}
+              {selectedPresetId && <button className="icon-action danger" onClick={() => void removePreset()} disabled={savingPreset} aria-label="Ta bort vald förinställning"><Trash2 size={16} /></button>}
             </div>
             <p className="privacy-note"><ShieldCheck size={14} /> Förinställningar delas av administratörer och sparas på servern.</p>
           </section>
@@ -466,8 +468,8 @@ export default function App() {
             <div className="export-actions"><button className="button button-light" onClick={resetSettings}><RotateCcw size={15} /> Återställ</button><button className="button button-orange" onClick={() => void exportAudio()} disabled={!audioBuffer || exporting}>{exporting ? <span className="spinner" /> : <Download size={16} />}{exporting ? " Bearbetar…" : " Exportera WAV"}</button></div>
           </section>
 
-          {error && <div className="alert" role="alert">{error}<button onClick={() => setError("")} aria-label="Sulje virheilmoitus"><X size={15} /></button></div>}
-          {notice && <div className="success-message" role="status">{notice}<button onClick={() => setNotice("")} aria-label="Sulje ilmoitus"><X size={15} /></button></div>}
+          {error && <div className="alert" role="alert">{error}<button onClick={() => setError("")} aria-label="Stäng felmeddelande"><X size={15} /></button></div>}
+          {notice && <div className="success-message" role="status">{notice}<button onClick={() => setNotice("")} aria-label="Stäng meddelande"><X size={15} /></button></div>}
         </div>}
     </main>
     <footer className="footer"><a className="brand" href="#"><span className="brand-icon"><AudioLines size={18} /></span><span>live<strong>master</strong></span></a><span>LJUDVERKTYG · BYGGT FÖR WEBBLÄSAREN</span><span>© {new Date().getFullYear()}</span></footer>
@@ -475,5 +477,10 @@ export default function App() {
 }
 
 function RangeControl({ label, value, min, max, step, format, onChange }: { label: string; value: number; min: number; max: number; step: number; format: (value: number) => string; onChange: (value: number) => void }) {
-  return <label className="range-control"><span className="range-label">{label}<output>{format(value)}</output></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} /><span className="range-endpoints"><small>{format(min)}</small><small>{format(max)}</small></span></label>;
+  const angle = -135 + ((value - min) / (max - min)) * 270;
+  return <label className="range-control"><span className="range-label">{label}<output>{format(value)}</output></span><span className="knob">
+    <span className="knob-track" />
+    <span className="knob-cap"><i style={{ transform: `rotate(${angle}deg)` }} /></span>
+    <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} aria-label={label} />
+  </span><span className="range-endpoints"><small>{format(min)}</small><small>{format(max)}</small></span></label>;
 }
