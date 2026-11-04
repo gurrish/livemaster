@@ -506,7 +506,7 @@ export default function App() {
               : <p className="privacy-note">Sparade Azure-filer kan öppnas och hanteras av administratörer.</p>}
           </section>
 
-          <section className="panel preset-panel">
+          {viewer.signedIn && <section className="panel preset-panel">
             <div className="panel-heading"><div><span className="eyebrow">02 / INSTÄLLNINGAR</span><h2>Förinställningar</h2></div><span className="panel-index">P</span></div>
             {viewer.isAdmin
               ? <>
@@ -529,7 +529,7 @@ export default function App() {
                 {!viewer.signedIn && <button className="button button-dark" onClick={signIn}><LogIn size={15} /> Logga in som administratör</button>}
                 {viewer.signedIn && <p className="privacy-note">Kontot {viewer.email ?? ""} saknar administratörsbehörighet.</p>}
               </div>}
-          </section>
+          </section>}
 
           <section className="panel eq-panel">
             <div className="panel-heading"><div><span className="eyebrow">03 / FREKVENS</span><h2>Equalizer</h2></div><span className="unit-tag">±12 dB</span></div>
