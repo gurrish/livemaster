@@ -10,6 +10,9 @@ export interface Repository {
   listTracks(): Promise<AudioTrack[]>;
   getTrack(id: string): Promise<AudioTrack | undefined>;
   saveTrack(track: AudioTrack, bytes: Buffer): Promise<void>;
+  stageTrackChunk(id: string, index: number, bytes: Buffer): Promise<void>;
+  readStagedTrack(id: string, chunkCount: number): Promise<Buffer | undefined>;
+  deleteStagedTrack(id: string): Promise<void>;
   readTrack(id: string): Promise<StoredAudioTrack | undefined>;
   deleteTrack(id: string): Promise<void>;
 }
@@ -33,6 +36,7 @@ function fromEntity(entity: StoredPreset): Preset {
 export class MemoryRepository implements Repository {
   private readonly presets = new Map<string, Preset>();
   private readonly tracks = new Map<string, StoredAudioTrack>();
+  private readonly stagedTracks = new Map<string, Map<number, Buffer>>();
 
   async listPresets(): Promise<Preset[]> {
     return [...this.presets.values()].map((preset) => structuredClone(preset));
@@ -56,6 +60,20 @@ export class MemoryRepository implements Repository {
   }
   async saveTrack(track: AudioTrack, bytes: Buffer): Promise<void> {
     this.tracks.set(track.id, { track: structuredClone(track), bytes: Buffer.from(bytes) });
+  }
+  async stageTrackChunk(id: string, index: number, bytes: Buffer): Promise<void> {
+    const chunks = this.stagedTracks.get(id) ?? new Map<number, Buffer>();
+    chunks.set(index, Buffer.from(bytes));
+    this.stagedTracks.set(id, chunks);
+  }
+  async readStagedTrack(id: string, chunkCount: number): Promise<Buffer | undefined> {
+    const chunks = this.stagedTracks.get(id);
+    if (!chunks) return undefined;
+    const ordered = Array.from({ length: chunkCount }, (_, index) => chunks.get(index));
+    return ordered.every((chunk): chunk is Buffer => chunk !== undefined) ? Buffer.concat(ordered) : undefined;
+  }
+  async deleteStagedTrack(id: string): Promise<void> {
+    this.stagedTracks.delete(id);
   }
   async readTrack(id: string): Promise<StoredAudioTrack | undefined> {
     const stored = this.tracks.get(id);
@@ -152,6 +170,14 @@ export class TableRepository implements Repository {
     return this.blobs.getContainerClient("audio-tracks");
   }
 
+  private stagedBlobId(id: string) {
+    return `upload-${id}`;
+  }
+
+  private blockId(index: number) {
+    return Buffer.from(index.toString().padStart(8, "0")).toString("base64");
+  }
+
   async saveTrack(track: AudioTrack, bytes: Buffer): Promise<void> {
     const container = this.audioContainer();
     await container.createIfNotExists();
@@ -171,6 +197,26 @@ export class TableRepository implements Repository {
       await container.getBlockBlobClient(track.id).deleteIfExists();
       throw error;
     }
+  }
+
+  async stageTrackChunk(id: string, index: number, bytes: Buffer): Promise<void> {
+    const container = this.audioContainer();
+    await container.createIfNotExists();
+    await container.getBlockBlobClient(this.stagedBlobId(id)).stageBlock(this.blockId(index), bytes, bytes.length);
+  }
+
+  async readStagedTrack(id: string, chunkCount: number): Promise<Buffer | undefined> {
+    const blob = this.audioContainer().getBlockBlobClient(this.stagedBlobId(id));
+    const blocks = await blob.getBlockList("uncommitted");
+    const stagedIds = new Set((blocks.uncommittedBlocks ?? []).map((block) => block.name));
+    const blockIds = Array.from({ length: chunkCount }, (_, index) => this.blockId(index));
+    if (!blockIds.every((blockId) => stagedIds.has(blockId))) return undefined;
+    await blob.commitBlockList(blockIds, { blobHTTPHeaders: { blobContentType: "application/octet-stream" } });
+    return blob.downloadToBuffer();
+  }
+
+  async deleteStagedTrack(id: string): Promise<void> {
+    await this.audioContainer().getBlockBlobClient(this.stagedBlobId(id)).deleteIfExists();
   }
 
   async readTrack(id: string): Promise<StoredAudioTrack | undefined> {

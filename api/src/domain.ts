@@ -5,9 +5,15 @@ export const environmentSchema = z.enum(["studio", "car", "phone", "laptop", "he
 export const audioSettingsSchema = z.object({
   eq: z.object({
     low: z.number().min(-12).max(12),
-    mid: z.number().min(-12).max(12),
+    lowMid: z.number().min(-12).max(12).optional(),
+    highMid: z.number().min(-12).max(12).optional(),
+    mid: z.number().min(-12).max(12).optional(),
     high: z.number().min(-12).max(12),
-  }).strict(),
+  }).strict().transform(({ mid, lowMid, highMid, ...eq }) => ({
+    ...eq,
+    lowMid: lowMid ?? 0,
+    highMid: highMid ?? mid ?? 0,
+  })),
   compressor: z.object({
     threshold: z.number().min(-60).max(0),
     ratio: z.number().min(1).max(20),

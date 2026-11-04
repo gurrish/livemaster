@@ -10,7 +10,8 @@ const profiles: Record<Environment, { lowCut: number; highCut: number; bass: num
 
 interface EffectNodes {
   low: BiquadFilterNode;
-  mid: BiquadFilterNode;
+  lowMid: BiquadFilterNode;
+  highMid: BiquadFilterNode;
   high: BiquadFilterNode;
   compressor: DynamicsCompressorNode;
   limiter: DynamicsCompressorNode;
@@ -30,10 +31,14 @@ function createEffects(context: BaseAudioContext, settings: AudioSettings, envir
   const low = context.createBiquadFilter();
   low.type = "lowshelf";
   low.frequency.value = 120;
-  const mid = context.createBiquadFilter();
-  mid.type = "peaking";
-  mid.frequency.value = 1_000;
-  mid.Q.value = 0.7;
+  const lowMid = context.createBiquadFilter();
+  lowMid.type = "peaking";
+  lowMid.frequency.value = 500;
+  lowMid.Q.value = 0.7;
+  const highMid = context.createBiquadFilter();
+  highMid.type = "peaking";
+  highMid.frequency.value = 2_500;
+  highMid.Q.value = 0.7;
   const high = context.createBiquadFilter();
   high.type = "highshelf";
   high.frequency.value = 8_000;
@@ -63,14 +68,15 @@ function createEffects(context: BaseAudioContext, settings: AudioSettings, envir
   dry.gain.value = bypassed ? 1 : 0;
   wet.gain.value = bypassed ? 0 : 1;
 
-  const nodes = { low, mid, high, compressor, limiter, environmentLow, environmentMid, environmentHigh, hardCeiling, dry, wet };
+  const nodes = { low, lowMid, highMid, high, compressor, limiter, environmentLow, environmentMid, environmentHigh, hardCeiling, dry, wet };
   updateEffects(nodes, context, settings, environment, bypassed);
   return nodes;
 }
 
 function updateEffects(nodes: EffectNodes, context: BaseAudioContext, settings: AudioSettings, environment: Environment, bypassed: boolean) {
   setValue(nodes.low.gain, settings.eq.low, context);
-  setValue(nodes.mid.gain, settings.eq.mid, context);
+  setValue(nodes.lowMid.gain, settings.eq.lowMid, context);
+  setValue(nodes.highMid.gain, settings.eq.highMid, context);
   setValue(nodes.high.gain, settings.eq.high, context);
   setValue(nodes.compressor.threshold, settings.compressor.threshold, context);
   setValue(nodes.compressor.ratio, settings.compressor.ratio, context);
@@ -107,8 +113,9 @@ export function connectAudioEffects(
   source.connect(nodes.dry);
   nodes.dry.connect(context.destination);
   source.connect(nodes.low);
-  nodes.low.connect(nodes.mid);
-  nodes.mid.connect(nodes.high);
+  nodes.low.connect(nodes.lowMid);
+  nodes.lowMid.connect(nodes.highMid);
+  nodes.highMid.connect(nodes.high);
   nodes.high.connect(nodes.compressor);
   nodes.compressor.connect(nodes.limiter);
   nodes.limiter.connect(nodes.environmentLow);

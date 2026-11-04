@@ -1,6 +1,6 @@
 # Livemaster
 
-Livemaster is a browser-based audio testing workspace for WAV mixes. Administrators can adjust a three-band EQ, compressor and limiter; compare processed and bypassed audio with a one-click A/B switch; audition simplified listening-environment profiles; save shared processing presets; and export the selected signal as a new WAV file. The interface is in Swedish, with a dark mixing-console faceplate and a warm vintage-style EQ section.
+Livemaster is a browser-based audio testing workspace for WAV mixes. Administrators can adjust a four-band EQ with low and high mids, compressor and limiter; compare processed and bypassed audio with a one-click A/B switch; audition simplified listening-environment profiles; save shared processing presets; and export the selected signal as a new WAV file. The interface is in Swedish, with a dark mixing-console faceplate and a warm vintage-style EQ section.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ Livemaster is a browser-based audio testing workspace for WAV mixes. Administrat
 
 The managed Functions API uses the server-side `STORAGE_CONNECTION_STRING` configured by Bicep. Shared-key access is enabled for the Storage Account to support this integration. Do not expose or commit the key.
 
-WAV files are decoded and processed in the browser. Selecting a file does not upload it; choose **Spara i Azure** to store it privately and open it later from another device. Uploads are limited to 80 MB. EQ, compression, limiting and WAV export use the Web Audio API. The device profiles are simplified frequency-response simulations, not measured models of specific speakers or headphones.
+WAV files are decoded and processed in the browser. Selecting a file does not upload it; choose **Spara i Azure** to store it privately and open it later from another device. WAV files up to 100 MiB can be uploaded to Azure in 8 MiB chunks to stay below the Static Web Apps API request-size limit. EQ, compression, limiting and WAV export use the Web Audio API. The device profiles are simplified frequency-response simulations, not measured models of specific speakers or headphones.
 
 ## Local development
 
@@ -98,7 +98,7 @@ Save it as the GitHub `SWA_DEPLOYMENT_TOKEN` secret. Push an application change 
 - `GET /api/presets`, `POST /api/presets`, `PUT /api/presets/{id}`, and `DELETE /api/presets/{id}` manage shared processing presets.
 - `GET /api/tracks` lists saved WAV metadata; `POST /api/tracks` stores a WAV; `GET /api/tracks/{id}` streams it from private storage; and `DELETE /api/tracks/{id}` removes it.
 - Every `/api/presets` and `/api/tracks` operation requires an authenticated email in `GLOBAL_ADMIN_EMAILS`. The API never trusts client-supplied identity for authorization.
-- WAV uploads are limited to 80 MB and checked for valid RIFF/WAVE format and audio chunks. Files are stored in the private `audio-tracks` Blob container, with names and metadata in the `AudioTracks` table.
+- WAV uploads are limited to 100 MiB and checked for valid RIFF/WAVE format and audio chunks. Files are uploaded in chunks and stored in the private `audio-tracks` Blob container, with names and metadata in the `AudioTracks` table.
 - Presets are validated on the server and stored in the `AudioPresets` table.
 
 Static Web Apps managed Functions use a server-side Storage connection string. Browser code only calls the API and never receives storage credentials or direct Blob URLs.

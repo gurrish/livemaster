@@ -4,7 +4,9 @@ import type { AudioTrack } from "./domain.js";
 import { presetInputSchema } from "./domain.js";
 import { createPreset, getRepository } from "./repository.js";
 
-const maxTrackBytes = 80 * 1024 * 1024;
+const maxTrackBytes = 100 * 1024 * 1024;
+const maxChunkBytes = 8 * 1024 * 1024;
+const maxTrackChunks = Math.ceil(maxTrackBytes / maxChunkBytes);
 const trackIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface Identity {
@@ -111,7 +113,8 @@ function isWav(bytes: Buffer): boolean {
 
 export async function handle(request: HttpRequest, context: InvocationContext): Promise<Response> {
   try {
-    const [api, resource, id] = responsePath(new URL(request.url).pathname);
+    const segments = responsePath(new URL(request.url).pathname);
+    const [api, resource, id, action, indexSegment] = segments;
     if (api !== "api") throw new HttpError(404, "API-adressen hittades inte.");
     const method = request.method.toUpperCase();
 
@@ -119,9 +122,49 @@ export async function handle(request: HttpRequest, context: InvocationContext): 
       const actor = identity(request);
       return json({ signedIn: Boolean(actor), email: actor?.email ?? null, isAdmin: isAdmin(actor?.email) });
     }
-    if (resource !== "presets" && resource !== "tracks") throw new HttpError(404, "API-adressen hittades inte.");
+    if (resource !== "presets" && resource !== "tracks" && resource !== "uploads") throw new HttpError(404, "API-adressen hittades inte.");
     requireAdmin(request);
     const repo = getRepository();
+
+    if (resource === "uploads" && id) {
+      if (!trackIdPattern.test(id)) throw new HttpError(404, "Uppladdningen hittades inte.");
+      if (action === "chunks" && indexSegment !== undefined && segments.length === 5 && method === "POST") {
+        const index = Number(indexSegment);
+        const declaredLength = Number(request.headers.get("content-length") || 0);
+        if (!Number.isSafeInteger(index) || index < 0 || index >= maxTrackChunks) throw new HttpError(400, "Uppladdningsdelen har ett ogiltigt nummer.");
+        if (declaredLength > maxChunkBytes) throw new HttpError(413, "En uppladdningsdel får vara högst 8 MiB.");
+        const bytes = Buffer.from(await request.arrayBuffer());
+        if (!bytes.length || bytes.length > maxChunkBytes) throw new HttpError(413, "En uppladdningsdel får vara högst 8 MiB.");
+        await repo.stageTrackChunk(id, index, bytes);
+        return json({ ok: true });
+      }
+      if (!action && segments.length === 3 && method === "DELETE") {
+        await repo.deleteStagedTrack(id);
+        return json({ ok: true });
+      }
+      if (action === "complete" && !indexSegment && segments.length === 4 && method === "POST") {
+        const name = audioFileName(request);
+        const size = Number(request.headers.get("x-file-size"));
+        const chunkCount = Number(request.headers.get("x-chunk-count"));
+        if (!Number.isSafeInteger(size) || size <= 0) throw new HttpError(400, "Filstorleken är ogiltig.");
+        if (size > maxTrackBytes) throw new HttpError(413, "Maximal storlek för WAV-filer är 100 MiB.");
+        if (!Number.isSafeInteger(chunkCount) || chunkCount !== Math.ceil(size / maxChunkBytes)) {
+          throw new HttpError(400, "Antalet uppladdningsdelar stämmer inte med filstorleken.");
+        }
+        const bytes = await repo.readStagedTrack(id, chunkCount);
+        if (!bytes) throw new HttpError(400, "Uppladdningen saknar delar. Försök spara filen igen.");
+        if (bytes.length !== size || !isWav(bytes)) {
+          await repo.deleteStagedTrack(id);
+          throw new HttpError(400, "Filen verkar inte vara en giltig WAV-ljudfil.");
+        }
+        const track: AudioTrack = { id, name, size: bytes.length, updatedAt: new Date().toISOString() };
+        await repo.saveTrack(track, bytes);
+        await repo.deleteStagedTrack(id);
+        return json(track, 201);
+      }
+      throw new HttpError(404, "API-adressen hittades inte.");
+    }
+    if (resource === "uploads") throw new HttpError(404, "API-adressen hittades inte.");
 
     if (resource === "tracks" && !id && method === "GET") {
       const tracks = await repo.listTracks();
@@ -130,10 +173,10 @@ export async function handle(request: HttpRequest, context: InvocationContext): 
     }
     if (resource === "tracks" && !id && method === "POST") {
       const declaredLength = Number(request.headers.get("content-length") || 0);
-      if (declaredLength > maxTrackBytes) throw new HttpError(413, "Maximal storlek för WAV-filer är 80 MB.");
+      if (declaredLength > maxTrackBytes) throw new HttpError(413, "Maximal storlek för WAV-filer är 100 MiB.");
       const name = audioFileName(request);
       const bytes = Buffer.from(await request.arrayBuffer());
-      if (!bytes.length || bytes.length > maxTrackBytes) throw new HttpError(413, "Maximal storlek för WAV-filer är 80 MB.");
+      if (!bytes.length || bytes.length > maxTrackBytes) throw new HttpError(413, "Maximal storlek för WAV-filer är 100 MiB.");
       if (!isWav(bytes)) throw new HttpError(400, "Filen verkar inte vara en giltig WAV-ljudfil.");
       const track: AudioTrack = {
         id: randomUUID(),

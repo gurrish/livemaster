@@ -21,11 +21,43 @@ export const createPreset = (preset: PresetInput) => request<Preset>("/api/prese
 export const updatePreset = (id: string, preset: PresetInput) => request<Preset>(`/api/presets/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(preset) });
 export const deletePreset = (id: string) => request<{ ok: true }>(`/api/presets/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const getTracks = () => request<AudioTrack[]>("/api/tracks");
-export const uploadTrack = (file: File) => request<AudioTrack>("/api/tracks", {
-  method: "POST",
-  headers: { "Content-Type": "application/octet-stream", "x-file-name": encodeURIComponent(file.name) },
-  body: file,
-});
+const uploadChunkSize = 8 * 1024 * 1024;
+
+export async function uploadTrack(file: File, onProgress?: (progress: number) => void): Promise<AudioTrack> {
+  const uploadId = crypto.randomUUID();
+  const chunkCount = Math.ceil(file.size / uploadChunkSize);
+  try {
+    for (let index = 0; index < chunkCount; index += 1) {
+      const start = index * uploadChunkSize;
+      const chunk = file.slice(start, Math.min(start + uploadChunkSize, file.size));
+      await request<{ ok: true }>(`/api/uploads/${uploadId}/chunks/${index}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: chunk,
+      });
+      onProgress?.(Math.floor(((index + 1) / chunkCount) * 99));
+    }
+    const track = await request<AudioTrack>(`/api/uploads/${uploadId}/complete`, {
+      method: "POST",
+      headers: {
+        "x-file-name": encodeURIComponent(file.name),
+        "x-file-size": String(file.size),
+        "x-chunk-count": String(chunkCount),
+      },
+    });
+    onProgress?.(100);
+    return track;
+  } catch (error) {
+    try {
+      await request<{ ok: true }>(`/api/uploads/${uploadId}`, { method: "DELETE" });
+    } catch (cleanupError) {
+      throw new Error("Uppladdningen misslyckades och tillfälliga delar kunde inte rensas.", {
+        cause: new AggregateError([error, cleanupError]),
+      });
+    }
+    throw error;
+  }
+}
 export const deleteTrack = (id: string) => request<{ ok: true }>(`/api/tracks/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 export async function downloadTrack(id: string): Promise<ArrayBuffer> {

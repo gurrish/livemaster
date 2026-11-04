@@ -5,7 +5,7 @@ import { connectAudioEffects, renderWav, updateAudioEffects } from "./lib/audio"
 import type { AudioSettings, Environment, Preset, PresetInput, Viewer } from "./types";
 
 const initialSettings: AudioSettings = {
-  eq: { low: 0, mid: 0, high: 0 },
+  eq: { low: 0, lowMid: 0, highMid: 0, high: 0 },
   compressor: { threshold: -18, ratio: 4, attack: 0.003, release: 0.25 },
   limiterCeiling: -1,
 };
@@ -18,7 +18,7 @@ const environments: { id: Environment; label: string; description: string }[] = 
   { id: "headphones", label: "Hörlurar", description: "Mjukare närvaro" },
 ];
 
-const maxFileSize = 80 * 1024 * 1024;
+const maxFileSize = 100 * 1024 * 1024;
 const timeLabel = (time: number) => `${Math.floor(time / 60)}:${Math.floor(time % 60).toString().padStart(2, "0")}`;
 
 export default function App() {
@@ -39,8 +39,10 @@ export default function App() {
   const [currentTrackId, setCurrentTrackId] = useState("");
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [uploadingTrack, setUploadingTrack] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [gainReduction, setGainReduction] = useState({ compressor: 0, limiter: 0 });
   const [exporting, setExporting] = useState(false);
   const [savingPreset, setSavingPreset] = useState(false);
   const audioContext = useRef<AudioContext | null>(null);
@@ -84,10 +86,11 @@ export default function App() {
   async function saveTrackToAzure() {
     if (!localFile) return;
     setUploadingTrack(true);
+    setUploadProgress(0);
     setError("");
     setNotice("");
     try {
-      const saved = await uploadTrack(localFile);
+      const saved = await uploadTrack(localFile, setUploadProgress);
       setTracks((current) => [saved, ...current]);
       setCurrentTrackId(saved.id);
       setLocalFile(null);
@@ -151,7 +154,14 @@ export default function App() {
     const timer = window.setInterval(() => {
       const context = audioContext.current;
       if (context) setPlayhead(Math.min(audioBuffer?.duration ?? 0, playbackOffset.current + context.currentTime - startedAt.current));
-    }, 100);
+      const activeEffects = effects.current;
+      if (activeEffects) {
+        setGainReduction({
+          compressor: Math.max(0, -activeEffects.compressor.reduction),
+          limiter: Math.max(0, -activeEffects.limiter.reduction),
+        });
+      }
+    }, 50);
     return () => window.clearInterval(timer);
   }, [playing, audioBuffer]);
 
@@ -171,7 +181,7 @@ export default function App() {
       return;
     }
     if (file.size > maxFileSize) {
-      setError("Maximal filstorlek är 80 MB.");
+      setError("Maximal filstorlek är 100 MiB.");
       return;
     }
 
@@ -204,6 +214,7 @@ export default function App() {
       const player = context.createBufferSource();
       player.buffer = audioBuffer;
       effects.current = connectAudioEffects(player, context, settings, environment, bypassed);
+      setGainReduction({ compressor: 0, limiter: 0 });
       source.current = player;
       const offset = currentTimeRef.current >= audioBuffer.duration ? 0 : currentTimeRef.current;
       playbackOffset.current = offset;
@@ -212,6 +223,7 @@ export default function App() {
         if (source.current !== player) return;
         source.current = null;
         effects.current = null;
+        setGainReduction({ compressor: 0, limiter: 0 });
         setPlaying(false);
         setPlayhead(0);
       };
@@ -234,6 +246,7 @@ export default function App() {
       const elapsed = context ? context.currentTime - startedAt.current : 0;
       source.current = null;
       effects.current = null;
+      setGainReduction({ compressor: 0, limiter: 0 });
       player.stop();
       setPlayhead(Math.min(audioBuffer?.duration ?? 0, playbackOffset.current + elapsed));
     }
@@ -394,7 +407,7 @@ export default function App() {
             <button className={`drop-zone${audioBuffer ? " loaded" : ""}`} onClick={() => selectedFile.current?.click()} disabled={loadingAudio}>
               <span className="upload-icon">{loadingAudio ? <span className="spinner" /> : <Upload size={23} />}</span>
               <strong>{loadingAudio ? "Öppnar WAV-filen…" : audioBuffer ? fileName : "Välj en WAV-fil"}</strong>
-              <small>{audioBuffer ? `${audioBuffer.numberOfChannels} kanaler · ${Math.round(audioBuffer.sampleRate / 100) / 10} kHz · ${timeLabel(audioBuffer.duration)}` : "WAV · högst 80 MB"}</small>
+              <small>{audioBuffer ? `${audioBuffer.numberOfChannels} kanaler · ${Math.round(audioBuffer.sampleRate / 100) / 10} kHz · ${timeLabel(audioBuffer.duration)}` : "WAV · högst 100 MiB"}</small>
             </button>
             <div className="playback">
               <button className="play-button" onClick={togglePlayback} disabled={!audioBuffer || loadingAudio} aria-label={playing ? "Pausa uppspelningen" : "Starta uppspelningen"}>{playing ? <Pause size={17} fill="currentColor" /> : <Play size={18} fill="currentColor" />}</button>
@@ -404,7 +417,7 @@ export default function App() {
               <button className={`bypass-toggle${bypassed ? " active" : ""}`} type="button" onClick={() => setBypassed((value) => !value)} aria-pressed={bypassed} aria-label={bypassed ? "Stäng av A/B-bypass och lyssna på behandlat ljud" : "Aktivera A/B-bypass och lyssna på obehandlat ljud"}><span>A/B</span><small>{bypassed ? "OBEHANDLAT" : "BEHANDLAT"}</small></button>
             </div>
             <p className="privacy-note"><ShieldCheck size={14} /> Filer spelas upp i webbläsaren. Spara till Azure om du vill öppna dem på fler enheter.</p>
-            {localFile && <button className="button button-dark save-track" onClick={() => void saveTrackToAzure()} disabled={uploadingTrack}>{uploadingTrack ? <span className="spinner" /> : <Save size={15} />}{uploadingTrack ? " Sparar i Azure…" : " Spara i Azure"}</button>}
+            {localFile && <button className="button button-dark save-track" onClick={() => void saveTrackToAzure()} disabled={uploadingTrack}>{uploadingTrack ? <span className="spinner" /> : <Save size={15} />}{uploadingTrack ? ` Sparar i Azure… ${uploadProgress}%` : " Spara i Azure"}</button>}
             <div className="saved-tracks">
               <span className="control-label">Sparade ljudfiler i Azure</span>
               {tracks.length ? tracks.map((track) => <div className={`saved-track${currentTrackId === track.id ? " active" : ""}`} key={track.id}>
@@ -435,7 +448,8 @@ export default function App() {
             <div className="panel-heading"><div><span className="eyebrow">03 / FREKVENS</span><h2>Equalizer</h2></div><span className="unit-tag">±12 dB</span></div>
             <div className="eq-controls">
               <RangeControl label="Bas" value={settings.eq.low} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("low", value)} />
-              <RangeControl label="Mellanregister" value={settings.eq.mid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("mid", value)} />
+              <RangeControl label="Låga mellanregister" value={settings.eq.lowMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("lowMid", value)} />
+              <RangeControl label="Höga mellanregister" value={settings.eq.highMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("highMid", value)} />
               <RangeControl label="Diskant" value={settings.eq.high} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("high", value)} />
             </div>
             <div className="eq-curve" aria-hidden="true"><span>20 Hz</span><i /><i /><i /><i /><i /><span>20 kHz</span></div>
@@ -449,11 +463,13 @@ export default function App() {
               <RangeControl label="Attack" value={settings.compressor.attack} min={0.001} max={1} step={0.001} format={(value) => `${Math.round(value * 1000)} ms`} onChange={(value) => updateCompressor("attack", value)} />
               <RangeControl label="Release" value={settings.compressor.release} min={0.01} max={1} step={0.01} format={(value) => `${Math.round(value * 1000)} ms`} onChange={(value) => updateCompressor("release", value)} />
             </div>
+            <GainReductionMeter label="Nivåreduktion" ariaLabel="Kompressorns nivåreduktion" value={gainReduction.compressor} />
           </section>
 
           <section className="panel limiter-panel">
             <div className="panel-heading"><div><span className="eyebrow">05 / SIGNALTOPPAR</span><h2>Limiter</h2></div><span className="limit-badge">PEAK</span></div>
             <RangeControl label="Maxnivå" value={settings.limiterCeiling} min={-12} max={0} step={0.5} format={(value) => `${value} dBFS`} onChange={(value) => setSettings((current) => ({ ...current, limiterCeiling: value }))} />
+            <GainReductionMeter label="Nivåreduktion" ariaLabel="Limiterns nivåreduktion" value={gainReduction.limiter} />
             <p className="panel-help">Sist i signalkedjan och begränsar signalens toppar.</p>
           </section>
 
@@ -483,4 +499,15 @@ function RangeControl({ label, value, min, max, step, format, onChange }: { labe
     <span className="knob-cap"><i style={{ transform: `rotate(${angle}deg)` }} /></span>
     <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} aria-label={label} />
   </span><span className="range-endpoints"><small>{format(min)}</small><small>{format(max)}</small></span></label>;
+}
+
+function GainReductionMeter({ label, ariaLabel, value }: { label: string; ariaLabel: string; value: number }) {
+  const displayedValue = Math.min(value, 24);
+  return <div className="gain-reduction">
+    <span>{label}</span>
+    <div className="gain-reduction-track" role="meter" aria-label={ariaLabel} aria-valuemin={0} aria-valuemax={24} aria-valuenow={displayedValue} aria-valuetext={`${value.toFixed(1)} dB`}>
+      <i style={{ width: `${(displayedValue / 24) * 100}%` }} />
+    </div>
+    <output>{value.toFixed(1)} dB</output>
+  </div>;
 }

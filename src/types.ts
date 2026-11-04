@@ -3,7 +3,8 @@ export type Environment = "studio" | "car" | "phone" | "laptop" | "headphones";
 export interface AudioSettings {
   eq: {
     low: number;
-    mid: number;
+    lowMid: number;
+    highMid: number;
     high: number;
   };
   compressor: {
