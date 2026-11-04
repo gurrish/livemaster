@@ -1,6 +1,6 @@
 import { TableClient, type TableEntity } from "@azure/data-tables";
 import { BlobServiceClient } from "@azure/storage-blob";
-import { presetInputSchema, type AudioTrack, type Preset, type PresetInput, type StoredAudioTrack } from "./domain.js";
+import { audioSettingsSchema, environmentSchema, presetInputSchema, type AudioSettings, type AudioTrack, type Environment, type Preset, type PresetInput, type StoredAudioTrack } from "./domain.js";
 
 export interface Repository {
   listPresets(): Promise<Preset[]>;
@@ -10,6 +10,7 @@ export interface Repository {
   listTracks(): Promise<AudioTrack[]>;
   getTrack(id: string): Promise<AudioTrack | undefined>;
   saveTrack(track: AudioTrack, bytes: Buffer): Promise<void>;
+  updateTrackSettings(id: string, settings: AudioSettings, environment: Environment): Promise<void>;
   stageTrackChunk(id: string, index: number, bytes: Buffer): Promise<void>;
   readStagedTrack(id: string, chunkCount: number): Promise<Buffer | undefined>;
   deleteStagedTrack(id: string): Promise<void>;
@@ -60,6 +61,10 @@ export class MemoryRepository implements Repository {
   }
   async saveTrack(track: AudioTrack, bytes: Buffer): Promise<void> {
     this.tracks.set(track.id, { track: structuredClone(track), bytes: Buffer.from(bytes) });
+  }
+  async updateTrackSettings(id: string, settings: AudioSettings, environment: Environment): Promise<void> {
+    const stored = this.tracks.get(id);
+    if (stored) stored.track = { ...stored.track, settings: structuredClone(settings), environment, updatedAt: new Date().toISOString() };
   }
   async stageTrackChunk(id: string, index: number, bytes: Buffer): Promise<void> {
     const chunks = this.stagedTracks.get(id) ?? new Map<number, Buffer>();
@@ -154,7 +159,10 @@ export class TableRepository implements Repository {
       || typeof entity.size !== "number" || typeof entity.updatedAt !== "string") {
       throw new Error("Stored audio track has an invalid shape.");
     }
-    return { id: entity.rowKey, name: entity.name, size: entity.size, updatedAt: entity.updatedAt };
+    const track: AudioTrack = { id: entity.rowKey, name: entity.name, size: entity.size, updatedAt: entity.updatedAt };
+    if (typeof entity.settings === "string") track.settings = audioSettingsSchema.parse(JSON.parse(entity.settings));
+    if (typeof entity.environment === "string") track.environment = environmentSchema.parse(entity.environment);
+    return track;
   }
 
   async getTrack(id: string): Promise<AudioTrack | undefined> {
@@ -192,11 +200,28 @@ export class TableRepository implements Repository {
         name: track.name,
         size: track.size,
         updatedAt: track.updatedAt,
+        ...(track.settings ? { settings: JSON.stringify(track.settings) } : {}),
+        ...(track.environment ? { environment: track.environment } : {}),
       }, "Replace");
     } catch (error) {
       await container.getBlockBlobClient(track.id).deleteIfExists();
       throw error;
     }
+  }
+
+  async updateTrackSettings(id: string, settings: AudioSettings, environment: Environment): Promise<void> {
+    const track = await this.getTrack(id);
+    if (!track) return;
+    await this.ensureTrackTable();
+    await this.tracks.upsertEntity({
+      partitionKey: "tracks",
+      rowKey: id,
+      name: track.name,
+      size: track.size,
+      updatedAt: new Date().toISOString(),
+      settings: JSON.stringify(settings),
+      environment,
+    }, "Replace");
   }
 
   async stageTrackChunk(id: string, index: number, bytes: Buffer): Promise<void> {

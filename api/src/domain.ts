@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const environmentSchema = z.enum(["studio", "car", "phone", "laptop", "headphones"]);
+export type Environment = z.infer<typeof environmentSchema>;
 
 export const audioSettingsSchema = z.object({
   eq: z.object({
@@ -23,13 +24,20 @@ export const audioSettingsSchema = z.object({
   limiterCeiling: z.number().min(-12).max(0),
 }).strict();
 
+export type AudioSettings = z.infer<typeof audioSettingsSchema>;
 export const presetInputSchema = z.object({
   name: z.string().trim().min(1).max(60),
   settings: audioSettingsSchema,
   environment: environmentSchema,
 }).strict();
 
+export const trackSettingsSchema = z.object({
+  settings: audioSettingsSchema,
+  environment: environmentSchema,
+}).strict();
+
 export type PresetInput = z.infer<typeof presetInputSchema>;
+export type TrackSettings = z.infer<typeof trackSettingsSchema>;
 export type Preset = PresetInput & {
   id: string;
   updatedAt: string;
@@ -40,6 +48,8 @@ export interface AudioTrack {
   name: string;
   size: number;
   updatedAt: string;
+  settings?: AudioSettings;
+  environment?: Environment;
 }
 
 export interface StoredAudioTrack {

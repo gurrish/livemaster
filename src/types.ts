@@ -35,6 +35,8 @@ export interface AudioTrack {
   name: string;
   size: number;
   updatedAt: string;
+  settings?: AudioSettings;
+  environment?: Environment;
 }
 
 export interface Viewer {

@@ -1,7 +1,7 @@
 import { app, type HttpRequest, type InvocationContext } from "@azure/functions";
 import { randomUUID } from "node:crypto";
 import type { AudioTrack } from "./domain.js";
-import { presetInputSchema } from "./domain.js";
+import { presetInputSchema, trackSettingsSchema } from "./domain.js";
 import { createPreset, getRepository } from "./repository.js";
 
 const maxTrackBytes = 100 * 1024 * 1024;
@@ -157,7 +157,15 @@ export async function handle(request: HttpRequest, context: InvocationContext): 
           await repo.deleteStagedTrack(id);
           throw new HttpError(400, "Filen verkar inte vara en giltig WAV-ljudfil.");
         }
-        const track: AudioTrack = { id, name, size: bytes.length, updatedAt: new Date().toISOString() };
+        const parsedSettings = trackSettingsSchema.safeParse(await readBody(request));
+        if (!parsedSettings.success) throw new HttpError(400, "Kontrollera ljudinställningarna.");
+        const track: AudioTrack = {
+          ...parsedSettings.data,
+          id,
+          name,
+          size: bytes.length,
+          updatedAt: new Date().toISOString(),
+        };
         await repo.saveTrack(track, bytes);
         await repo.deleteStagedTrack(id);
         return json(track, 201);
@@ -200,6 +208,18 @@ export async function handle(request: HttpRequest, context: InvocationContext): 
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
           },
+        });
+      }
+      if (action === "settings" && method === "PUT") {
+        const parsed = trackSettingsSchema.safeParse(await readBody(request));
+        if (!parsed.success) throw new HttpError(400, "Kontrollera ljudinställningarna.");
+        const track = await repo.getTrack(id);
+        if (!track) throw new HttpError(404, "Ljudfilen hittades inte.");
+        await repo.updateTrackSettings(id, parsed.data.settings, parsed.data.environment);
+        return json({
+          ...track,
+          ...parsed.data,
+          updatedAt: new Date().toISOString(),
         });
       }
       if (method === "DELETE") {

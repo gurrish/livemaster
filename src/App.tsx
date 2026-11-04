@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { AudioLines, Download, LogIn, LogOut, Pause, Play, RotateCcw, Save, ShieldCheck, Trash2, Upload, Volume2, X } from "lucide-react";
-import { createPreset, deletePreset, deleteTrack, downloadTrack, getPresets, getTracks, getViewer, updatePreset, uploadTrack } from "./lib/api";
-import { connectAudioEffects, renderWav, updateAudioEffects } from "./lib/audio";
+import { createPreset, deletePreset, deleteTrack, downloadTrack, getPresets, getTracks, getViewer, updatePreset, updateTrackSettings, uploadTrack } from "./lib/api";
+import { analyzeLoudness, connectAudioEffects, renderWav, updateAudioEffects, type LoudnessAnalysis } from "./lib/audio";
 import type { AudioSettings, Environment, Preset, PresetInput, Viewer } from "./types";
 
 const initialSettings: AudioSettings = {
@@ -19,6 +19,7 @@ const environments: { id: Environment; label: string; description: string }[] = 
 ];
 
 const maxFileSize = 100 * 1024 * 1024;
+const spotifyTargetLufs = -14;
 const timeLabel = (time: number) => `${Math.floor(time / 60)}:${Math.floor(time % 60).toString().padStart(2, "0")}`;
 
 export default function App() {
@@ -43,15 +44,35 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [gainReduction, setGainReduction] = useState({ compressor: 0, limiter: 0 });
+  const [normalizeToSpotify, setNormalizeToSpotify] = useState(false);
+  const [loudnessAnalysis, setLoudnessAnalysis] = useState<{
+    audioBuffer: AudioBuffer;
+    key: string;
+    result: LoudnessAnalysis;
+  } | null>(null);
+  const [loudnessStatus, setLoudnessStatus] = useState<"idle" | "analyzing" | "ready" | "error">("idle");
   const [exporting, setExporting] = useState(false);
   const [savingPreset, setSavingPreset] = useState(false);
+  const [savingTrackSettings, setSavingTrackSettings] = useState(false);
   const audioContext = useRef<AudioContext | null>(null);
   const source = useRef<AudioBufferSourceNode | null>(null);
   const effects = useRef<ReturnType<typeof connectAudioEffects> | null>(null);
+  const savedTrackSettings = useRef("");
+  const activeTrackId = useRef(currentTrackId);
+  const activeTrackSettings = useRef("");
+  const trackSettingsSaveQueue = useRef(Promise.resolve());
   const currentTimeRef = useRef(0);
+  const loudnessRequest = useRef(0);
   const startedAt = useRef(0);
   const playbackOffset = useRef(0);
   const selectedFile = useRef<HTMLInputElement>(null);
+  const trackSettingsKey = JSON.stringify({ settings, environment });
+  const loudnessKey = JSON.stringify({ settings, environment, bypassed });
+  const analysisMatchesCurrentAudio = loudnessAnalysis?.audioBuffer === audioBuffer && loudnessAnalysis.key === loudnessKey;
+  const currentLoudness = analysisMatchesCurrentAudio ? loudnessAnalysis.result : null;
+  const normalizationGain = normalizeToSpotify && currentLoudness ? currentLoudness.normalizationGain : 1;
+  activeTrackId.current = currentTrackId;
+  activeTrackSettings.current = trackSettingsKey;
 
   function setPlayhead(time: number) {
     currentTimeRef.current = time;
@@ -73,6 +94,11 @@ export default function App() {
       setAudioBuffer(decoded);
       setFileName(track.name);
       setLocalFile(null);
+      const restoredSettings = track.settings ?? initialSettings;
+      const restoredEnvironment = track.environment ?? "studio";
+      setSettings(restoredSettings);
+      setEnvironment(restoredEnvironment);
+      savedTrackSettings.current = JSON.stringify({ settings: restoredSettings, environment: restoredEnvironment });
       setCurrentTrackId(track.id);
       setPlayhead(0);
       setNotice(`”${track.name}” öppnades från Azure-lagringen.`);
@@ -90,7 +116,8 @@ export default function App() {
     setError("");
     setNotice("");
     try {
-      const saved = await uploadTrack(localFile, setUploadProgress);
+      const saved = await uploadTrack(localFile, settings, environment, setUploadProgress);
+      savedTrackSettings.current = JSON.stringify({ settings, environment });
       setTracks((current) => [saved, ...current]);
       setCurrentTrackId(saved.id);
       setLocalFile(null);
@@ -146,8 +173,61 @@ export default function App() {
   useEffect(() => { void loadWorkspace(); }, []);
 
   useEffect(() => {
-    updateAudioEffects(effects.current, audioContext.current, settings, environment, bypassed);
-  }, [settings, environment, bypassed]);
+    updateAudioEffects(effects.current, audioContext.current, settings, environment, bypassed, normalizationGain);
+  }, [settings, environment, bypassed, normalizationGain]);
+
+  useEffect(() => {
+    const requestId = ++loudnessRequest.current;
+    if (!audioBuffer) {
+      setLoudnessAnalysis(null);
+      setLoudnessStatus("idle");
+      return;
+    }
+
+    setLoudnessStatus("analyzing");
+    const timer = window.setTimeout(() => {
+      void analyzeLoudness(audioBuffer, settings, environment, bypassed).then((result) => {
+        if (loudnessRequest.current !== requestId) return;
+        setLoudnessAnalysis({ audioBuffer, key: loudnessKey, result });
+        setLoudnessStatus("ready");
+      }).catch(() => {
+        if (loudnessRequest.current !== requestId) return;
+        setLoudnessStatus("error");
+      });
+    }, 500);
+    return () => {
+      window.clearTimeout(timer);
+      loudnessRequest.current += 1;
+    };
+  }, [audioBuffer, settings, environment, bypassed, loudnessKey]);
+
+  useEffect(() => {
+    if (!viewer.isAdmin || !currentTrackId || trackSettingsKey === savedTrackSettings.current) return;
+    const trackId = currentTrackId;
+    const settingsToSave = settings;
+    const environmentToSave = environment;
+    const settingsKey = trackSettingsKey;
+    const timer = window.setTimeout(() => {
+      trackSettingsSaveQueue.current = trackSettingsSaveQueue.current.then(async () => {
+        if (activeTrackId.current !== trackId || activeTrackSettings.current !== settingsKey) return;
+        setSavingTrackSettings(true);
+        try {
+          const updated = await updateTrackSettings(trackId, settingsToSave, environmentToSave);
+          setTracks((current) => current.map((track) => track.id === trackId ? updated : track));
+          if (activeTrackId.current === trackId && activeTrackSettings.current === settingsKey) {
+            savedTrackSettings.current = settingsKey;
+          }
+        } catch (cause) {
+          if (activeTrackId.current === trackId && activeTrackSettings.current === settingsKey) {
+            setError(cause instanceof Error ? cause.message : "Inställningarna kunde inte sparas för ljudfilen.");
+          }
+        } finally {
+          if (activeTrackId.current === trackId) setSavingTrackSettings(false);
+        }
+      });
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [currentTrackId, settings, environment, trackSettingsKey, viewer.isAdmin]);
 
   useEffect(() => {
     if (!playing) return;
@@ -196,6 +276,7 @@ export default function App() {
       setFileName(file.name);
       setLocalFile(file);
       setCurrentTrackId("");
+      savedTrackSettings.current = "";
       setPlayhead(0);
       setNotice("Ljudfilen bearbetas bara i webbläsaren. Den har inte laddats upp till servern.");
     } catch {
@@ -213,7 +294,7 @@ export default function App() {
       await context.resume();
       const player = context.createBufferSource();
       player.buffer = audioBuffer;
-      effects.current = connectAudioEffects(player, context, settings, environment, bypassed);
+      effects.current = connectAudioEffects(player, context, settings, environment, bypassed, normalizationGain);
       setGainReduction({ compressor: 0, limiter: 0 });
       source.current = player;
       const offset = currentTimeRef.current >= audioBuffer.duration ? 0 : currentTimeRef.current;
@@ -323,7 +404,7 @@ export default function App() {
     setExporting(true);
     setError("");
     try {
-      const rendered = await renderWav(audioBuffer, settings, environment, bypassed);
+      const rendered = await renderWav(audioBuffer, settings, environment, bypassed, normalizationGain);
       const link = document.createElement("a");
       link.href = URL.createObjectURL(rendered);
       const safeName = fileName.replace(/[\u0000-\u001f<>:"/\\|?*]/g, "_").replace(/\.wav$/i, "") || "livemaster";
@@ -356,6 +437,7 @@ export default function App() {
       setViewer({ signedIn: false, email: null, isAdmin: false });
       setPresets([]);
       setTracks([]);
+      setCurrentTrackId("");
       pausePlayback();
       return;
     }
@@ -393,14 +475,7 @@ export default function App() {
       </section>
 
       {loading ? <div className="access-card">Kontrollerar inloggning…</div>
-        : !viewer.isAdmin ? <section className="access-card">
-          <div className="access-icon"><ShieldCheck size={27} /></div>
-          <span className="eyebrow">BEHÖRIGHET KRÄVS</span>
-          <h2>{viewer.signedIn ? "Kontot saknar administratörsbehörighet." : "Logga in för att fortsätta."}</h2>
-          {viewer.signedIn && <p>Kontot {viewer.email ?? ""} har inte behörighet att använda mixern.</p>}
-          {!viewer.signedIn && <button className="button button-dark" onClick={signIn}><LogIn size={16} /> Logga in</button>}
-          {error && <div className="alert" role="alert">{error}</div>}
-        </section> : <div className="workspace">
+        : <div className="workspace">
           <section className="panel file-panel">
             <div className="panel-heading"><div><span className="eyebrow">01 / LJUDKÄLLA</span><h2>Ljudfil</h2></div><span className="panel-index"><AudioLines size={18} /></span></div>
             <input ref={selectedFile} className="visually-hidden" type="file" accept=".wav,audio/wav,audio/x-wav" onChange={(event) => void handleFile(event)} />
@@ -417,31 +492,43 @@ export default function App() {
               <button className={`bypass-toggle${bypassed ? " active" : ""}`} type="button" onClick={() => setBypassed((value) => !value)} aria-pressed={bypassed} aria-label={bypassed ? "Stäng av A/B-bypass och lyssna på behandlat ljud" : "Aktivera A/B-bypass och lyssna på obehandlat ljud"}><span>A/B</span><small>{bypassed ? "OBEHANDLAT" : "BEHANDLAT"}</small></button>
             </div>
             <p className="privacy-note"><ShieldCheck size={14} /> Filer spelas upp i webbläsaren. Spara till Azure om du vill öppna dem på fler enheter.</p>
-            {localFile && <button className="button button-dark save-track" onClick={() => void saveTrackToAzure()} disabled={uploadingTrack}>{uploadingTrack ? <span className="spinner" /> : <Save size={15} />}{uploadingTrack ? ` Sparar i Azure… ${uploadProgress}%` : " Spara i Azure"}</button>}
-            <div className="saved-tracks">
-              <span className="control-label">Sparade ljudfiler i Azure</span>
-              {tracks.length ? tracks.map((track) => <div className={`saved-track${currentTrackId === track.id ? " active" : ""}`} key={track.id}>
-                <button className="saved-track-open" onClick={() => void loadSavedTrack(track.id)} disabled={loadingAudio}><span>{track.name}</span><small>{(track.size / 1024 / 1024).toFixed(1)} MB</small></button>
-                <button className="icon-action danger" onClick={() => void removeTrack(track.id)} aria-label={`Ta bort ${track.name} från Azure`}><Trash2 size={15} /></button>
-              </div>) : <p className="empty-tracks">Inga ljudfiler har sparats ännu.</p>}
-            </div>
+            {localFile && viewer.isAdmin && <button className="button button-dark save-track" onClick={() => void saveTrackToAzure()} disabled={uploadingTrack}>{uploadingTrack ? <span className="spinner" /> : <Save size={15} />}{uploadingTrack ? ` Sparar i Azure… ${uploadProgress}%` : " Spara i Azure"}</button>}
+            {localFile && !viewer.isAdmin && <p className="privacy-note">Logga in som administratör för att spara WAV-filen i Azure. Lokal uppspelning och export fungerar utan inloggning.</p>}
+            {currentTrackId && <p className="privacy-note">{savingTrackSettings ? "Inställningarna sparas för ljudfilen…" : "Inställningarna sparas automatiskt för den här ljudfilen."}</p>}
+            {viewer.isAdmin
+              ? <div className="saved-tracks">
+                <span className="control-label">Sparade ljudfiler i Azure</span>
+                {tracks.length ? tracks.map((track) => <div className={`saved-track${currentTrackId === track.id ? " active" : ""}`} key={track.id}>
+                  <button className="saved-track-open" onClick={() => void loadSavedTrack(track.id)} disabled={loadingAudio}><span>{track.name}</span><small>{(track.size / 1024 / 1024).toFixed(1)} MB</small></button>
+                  <button className="icon-action danger" onClick={() => void removeTrack(track.id)} aria-label={`Ta bort ${track.name} från Azure`}><Trash2 size={15} /></button>
+                </div>) : <p className="empty-tracks">Inga ljudfiler har sparats ännu.</p>}
+              </div>
+              : <p className="privacy-note">Sparade Azure-filer kan öppnas och hanteras av administratörer.</p>}
           </section>
 
           <section className="panel preset-panel">
             <div className="panel-heading"><div><span className="eyebrow">02 / INSTÄLLNINGAR</span><h2>Förinställningar</h2></div><span className="panel-index">P</span></div>
-            <label className="control-label" htmlFor="preset-select">Sparade förinställningar</label>
-            <select id="preset-select" className="select-control" value={selectedPresetId} onChange={(event) => applyPreset(presets.find((preset) => preset.id === event.target.value))}>
-              <option value="">Välj en förinställning…</option>
-              {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-            </select>
-            <label className="control-label preset-name-label" htmlFor="preset-name">Namn på förinställning</label>
-            <input id="preset-name" className="text-control" maxLength={60} value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="Till exempel Referens 02" />
-            <div className="preset-actions">
-              <button className="button button-dark" onClick={() => void saveCurrentPreset(false)} disabled={savingPreset}><Save size={15} /> Spara ny</button>
-              <button className="button button-light" onClick={() => void saveCurrentPreset(true)} disabled={savingPreset || !selectedPresetId}>Uppdatera vald</button>
-              {selectedPresetId && <button className="icon-action danger" onClick={() => void removePreset()} disabled={savingPreset} aria-label="Ta bort vald förinställning"><Trash2 size={16} /></button>}
-            </div>
-            <p className="privacy-note"><ShieldCheck size={14} /> Förinställningar delas av administratörer och sparas på servern.</p>
+            {viewer.isAdmin
+              ? <>
+                <label className="control-label" htmlFor="preset-select">Sparade förinställningar</label>
+                <select id="preset-select" className="select-control" value={selectedPresetId} onChange={(event) => applyPreset(presets.find((preset) => preset.id === event.target.value))}>
+                  <option value="">Välj en förinställning…</option>
+                  {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                </select>
+                <label className="control-label preset-name-label" htmlFor="preset-name">Namn på förinställning</label>
+                <input id="preset-name" className="text-control" maxLength={60} value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="Till exempel Referens 02" />
+                <div className="preset-actions">
+                  <button className="button button-dark" onClick={() => void saveCurrentPreset(false)} disabled={savingPreset}><Save size={15} /> Spara ny</button>
+                  <button className="button button-light" onClick={() => void saveCurrentPreset(true)} disabled={savingPreset || !selectedPresetId}>Uppdatera vald</button>
+                  {selectedPresetId && <button className="icon-action danger" onClick={() => void removePreset()} disabled={savingPreset} aria-label="Ta bort vald förinställning"><Trash2 size={16} /></button>}
+                </div>
+                <p className="privacy-note"><ShieldCheck size={14} /> Förinställningar delas av administratörer och sparas på servern.</p>
+              </>
+              : <div className="preset-access">
+                <p className="panel-help">Equalizer, dynamik och miljöinställningar kan användas utan inloggning. Delade förinställningar kräver administratörsbehörighet.</p>
+                {!viewer.signedIn && <button className="button button-dark" onClick={signIn}><LogIn size={15} /> Logga in som administratör</button>}
+                {viewer.signedIn && <p className="privacy-note">Kontot {viewer.email ?? ""} saknar administratörsbehörighet.</p>}
+              </div>}
           </section>
 
           <section className="panel eq-panel">
@@ -477,6 +564,25 @@ export default function App() {
             <div className="panel-heading"><div><span className="eyebrow">06 / LYSSNINGSTEST</span><h2>Lyssningsmiljö</h2></div><span className="panel-index">A/B</span></div>
             <div className="environment-grid">{environments.map((item) => <button key={item.id} className={`environment-option${environment === item.id ? " selected" : ""}`} onClick={() => setEnvironment(item.id)} aria-pressed={environment === item.id}><span>{item.label}</span><small>{item.description}</small></button>)}</div>
             <p className="simulation-note">En förenklad frekvenssimulering i webbläsaren – motsvarar inte mätningar från en viss enhet.</p>
+          </section>
+
+          <section className="panel loudness-panel">
+            <div className="panel-heading"><div><span className="eyebrow">07 / LOUDNESS</span><h2>Ljudstyrka</h2></div><span className="unit-tag">LUFS</span></div>
+            <div className="loudness-readout">
+              <span>Integrerad nivå</span>
+              <strong>{loudnessStatus === "analyzing" ? "Analyserar…" : loudnessStatus === "error" ? "Kunde inte mäta" : currentLoudness?.integratedLufs === null || !currentLoudness ? "— LUFS" : `${currentLoudness.integratedLufs.toFixed(1)} LUFS`}</strong>
+            </div>
+            <label className="normalize-option">
+              <input
+                type="checkbox"
+                checked={normalizeToSpotify}
+                disabled={!currentLoudness || currentLoudness.integratedLufs === null || loudnessStatus === "analyzing"}
+                onChange={(event) => setNormalizeToSpotify(event.target.checked)}
+              />
+              <span>Normalisera mot Spotify ({spotifyTargetLufs} LUFS)</span>
+            </label>
+            {normalizeToSpotify && currentLoudness?.normalizedLufs !== null && currentLoudness?.normalizedLufs !== undefined && <p className="panel-help">Efter normalisering: {currentLoudness.normalizedLufs.toFixed(1)} LUFS. Toppnivån begränsas till säkert utrymme för limiterinställningen.</p>}
+            <p className="panel-help">K-vägd integrerad loudness. Spotify kan justera uppspelningen efter sina egna inställningar; −14 LUFS är en jämförelsenivå, inte en garanti.</p>
           </section>
 
           <section className="export-bar">

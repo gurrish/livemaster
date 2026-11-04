@@ -41,6 +41,8 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
 
   const forbidden = await handle(request("/api/tracks", "GET", { "x-dev-user-email": "visitor@local.test" }), context);
   assert.equal(forbidden.status, 403);
+  const deniedSettingsUpdate = await handle(request("/api/tracks/e3cb32f7-2250-4d02-b1aa-f41539394af0/settings", "PUT"), context);
+  assert.equal(deniedSettingsUpdate.status, 401);
 
   const invalidAudio = await handle(request("/api/tracks", "POST", {
     ...adminHeaders,
@@ -75,16 +77,41 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
     "content-type": "application/octet-stream",
   }, wav), context);
   assert.equal(chunked.status, 200);
+  const initialTrackSettings = {
+    settings: {
+      eq: { low: 2, lowMid: 3, highMid: 4, high: -1 },
+      compressor: { threshold: -18, ratio: 4, attack: 0.003, release: 0.25 },
+      limiterCeiling: -1,
+    },
+    environment: "studio",
+  };
   const uploaded = await handle(request(`/api/uploads/${uploadId}/complete`, "POST", {
     ...adminHeaders,
     "x-file-name": encodeURIComponent("mix.wav"),
     "x-file-size": String(wav.length),
     "x-chunk-count": "1",
-  }), context);
+    "content-type": "application/json",
+  }, JSON.stringify(initialTrackSettings)), context);
   assert.equal(uploaded.status, 201);
   const track = await uploaded.json();
   assert.equal(track.name, "mix.wav");
   assert.equal(track.size, wav.length);
+  assert.deepEqual(track.settings, initialTrackSettings.settings);
+  assert.equal(track.environment, "studio");
+
+  const updatedTrackResponse = await handle(request(`/api/tracks/${track.id}/settings`, "PUT", {
+    ...adminHeaders,
+    "content-type": "application/json",
+  }, JSON.stringify({ ...initialTrackSettings, environment: "car" })), context);
+  assert.equal(updatedTrackResponse.status, 200);
+  const updatedTrack = await updatedTrackResponse.json();
+  assert.equal(updatedTrack.environment, "car");
+
+  const invalidTrackSettings = await handle(request(`/api/tracks/${track.id}/settings`, "PUT", {
+    ...adminHeaders,
+    "content-type": "application/json",
+  }, JSON.stringify({ ...initialTrackSettings, environment: "spaceship" })), context);
+  assert.equal(invalidTrackSettings.status, 400);
 
   const oversized = await handle(request(`/api/uploads/${uploadId}/complete`, "POST", {
     ...adminHeaders,
@@ -95,7 +122,7 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
   assert.equal(oversized.status, 413);
 
   const listed = await handle(request("/api/tracks", "GET", adminHeaders), context);
-  assert.deepEqual(await listed.json(), [track]);
+  assert.deepEqual(await listed.json(), [updatedTrack]);
   const downloaded = await handle(request(`/api/tracks/${track.id}`, "GET", adminHeaders), context);
   assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), wav);
 
