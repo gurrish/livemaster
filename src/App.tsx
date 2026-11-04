@@ -618,12 +618,51 @@ export default function App() {
 }
 
 function RangeControl({ label, value, min, max, step, format, onChange }: { label: string; value: number; min: number; max: number; step: number; format: (value: number) => string; onChange: (value: number) => void }) {
-  const angle = -135 + ((value - min) / (max - min)) * 270;
-  return <label className="range-control"><span className="range-label">{label}<output>{format(value)}</output></span><span className="knob">
-    <span className="knob-track" />
-    <span className="knob-cap"><i style={{ transform: `rotate(${angle}deg)` }} /></span>
-    <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} aria-label={label} />
-  </span><span className="range-endpoints"><small>{format(min)}</small><small>{format(max)}</small></span></label>;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value));
+  const skipBlurCommit = useRef(false);
+
+  function beginEditing() {
+    skipBlurCommit.current = false;
+    setDraft(String(value));
+    setEditing(true);
+  }
+
+  function handleBlur() {
+    if (skipBlurCommit.current) {
+      skipBlurCommit.current = false;
+      return;
+    }
+    commitValue();
+  }
+
+  function commitValue() {
+    const parsed = Number(draft.trim().replace(",", "."));
+    if (draft.trim() && Number.isFinite(parsed)) {
+      const clamped = Math.min(max, Math.max(min, parsed));
+      const snapped = min + Math.round((clamped - min) / step) * step;
+      const precision = Math.max(step.toString().split(".")[1]?.length ?? 0, min.toString().split(".")[1]?.length ?? 0);
+      onChange(Number(Math.min(max, Math.max(min, snapped)).toFixed(precision)));
+    }
+    setEditing(false);
+  }
+
+  return <div className="range-control"><span className="range-label"><span>{label}</span>
+    {editing
+      ? <input className="range-value-input" type="text" inputMode="decimal" autoFocus value={draft} aria-label={`Ange ${label}`} onChange={(event) => setDraft(event.target.value)} onBlur={handleBlur} onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          skipBlurCommit.current = true;
+          commitValue();
+        }
+        if (event.key === "Escape") {
+          skipBlurCommit.current = true;
+          setEditing(false);
+        }
+      }} />
+      : <output title="Dubbelklicka för att ange värde" onDoubleClick={beginEditing}>{format(value)}</output>}
+  </span>
+    <input className="range-slider" type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} onDoubleClick={beginEditing} aria-label={label} title="Dubbelklicka för att ange värde" />
+    <span className="range-endpoints"><small>{format(min)}</small><small>{format(max)}</small></span></div>;
 }
 
 function GainReductionMeter({ label, ariaLabel, value }: { label: string; ariaLabel: string; value: number }) {
