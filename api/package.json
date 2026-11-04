@@ -1,0 +1,21 @@
+{
+  "name": "livemaster-api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test",
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/data-tables": "13.3.2",
+    "@azure/functions": "^4.7.2",
+    "@azure/storage-blob": "12.32.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "~5.7.2"
+  }
+}

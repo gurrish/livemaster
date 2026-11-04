@@ -1,0 +1,12 @@
+node_modules/
+dist/
+api/node_modules/
+api/dist/
+api/local.settings.json
+.azurite/
+.env
+.env.*
+!.env.example
+.azure/
+*.tsbuildinfo
+.DS_Store
