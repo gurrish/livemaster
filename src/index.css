@@ -59,8 +59,8 @@ a { color: inherit; text-decoration: none; }
 .file-panel { grid-column: span 7; }
 .file-panel-wide { grid-column: 1 / -1; }
 .preset-panel { grid-column: span 5; }
-.eq-panel { grid-column: span 6; }
-.dynamics-panel { grid-column: span 6; }
+.eq-panel { grid-column: 1 / -1; }
+.dynamics-panel { grid-column: span 8; }
 .limiter-panel { grid-column: span 4; }
 .environment-panel { grid-column: span 8; }
 .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 22px; }
@@ -108,6 +108,15 @@ a { color: inherit; text-decoration: none; }
 .empty-tracks { margin: 8px 0 0; color: #8a8b83; font-size: 10px; }
 
 .eq-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; }
+.eq-band { gap: 8px; }
+.eq-band .range-label { flex-direction: column; align-items: center; gap: 3px; text-align: center; }
+.eq-band .range-slider-vertical { width: 30px; height: 154px; padding: 2px 0; writing-mode: vertical-lr; direction: rtl; touch-action: pan-x; }
+.eq-band .range-endpoints { width: auto; display: flex; flex-direction: column-reverse; gap: 0; }
+.eq-response { display: block; width: 100%; height: auto; margin-top: 24px; overflow: visible; }
+.eq-response text { fill: #6a685a; font: 8px var(--mono); }
+.eq-grid-line { stroke: #8e8772; stroke-width: .7; opacity: .48; }
+.eq-zero-line { stroke: #665f4e; stroke-width: 1; }
+.eq-response-line { fill: none; stroke: #986d29; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .range-control { display: flex; min-width: 0; flex-direction: column; gap: 11px; }
 .range-label { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; color: #676a61; font-size: 10px; font-weight: 600; }
 .range-label output { color: var(--ink); font: 10px var(--mono); }
@@ -170,7 +179,8 @@ a { color: inherit; text-decoration: none; }
   .workspace { padding-right: 32px; padding-left: 32px; }
   .file-panel { grid-column: span 7; }
   .preset-panel { grid-column: span 5; }
-  .eq-panel, .dynamics-panel { grid-column: span 6; }
+  .eq-panel { grid-column: 1 / -1; }
+  .dynamics-panel { grid-column: span 8; }
   .environment-grid { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 620px) {
@@ -195,6 +205,8 @@ a { color: inherit; text-decoration: none; }
   .panel { padding: 19px 17px; }
   .panel-heading h2 { font-size: 24px; }
   .eq-controls { gap: 8px; }
+  .eq-band .range-slider-vertical { height: 128px; }
+  .eq-response { margin-top: 16px; }
   .range-label { flex-wrap: wrap; }
   .dynamics-controls { gap: 20px 14px; }
   .environment-grid { grid-template-columns: repeat(2, 1fr); }

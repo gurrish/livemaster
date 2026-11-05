@@ -6,7 +6,7 @@ import type { AudioSettings, Environment, Preset, PresetInput, Viewer } from "./
 
 const initialSettings: AudioSettings = {
   eq: { low: 0, lowMid: 0, highMid: 0, high: 0 },
-  compressor: { threshold: -18, ratio: 4, attack: 0.003, release: 0.25 },
+  compressor: { threshold: -2, ratio: 4, attack: 0.03, release: 0.25 },
   limiterCeiling: -1,
   mono: false,
   pan: 0,
@@ -553,12 +553,12 @@ export default function App() {
           <section className="panel eq-panel">
             <div className="panel-heading"><div><span className="eyebrow">03 / FREKVENS</span><h2>Equalizer</h2></div><span className="unit-tag">±12 dB</span></div>
             <div className="eq-controls">
-              <RangeControl label="Bas" value={settings.eq.low} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("low", value)} />
-              <RangeControl label="Låga mellanregister" value={settings.eq.lowMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("lowMid", value)} />
-              <RangeControl label="Höga mellanregister" value={settings.eq.highMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("highMid", value)} />
-              <RangeControl label="Diskant" value={settings.eq.high} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("high", value)} />
+              <RangeControl vertical label="Bas" value={settings.eq.low} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("low", value)} />
+              <RangeControl vertical label="Låga mellanregister" value={settings.eq.lowMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("lowMid", value)} />
+              <RangeControl vertical label="Höga mellanregister" value={settings.eq.highMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("highMid", value)} />
+              <RangeControl vertical label="Diskant" value={settings.eq.high} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("high", value)} />
             </div>
-            <div className="eq-curve" aria-hidden="true"><span>20 Hz</span><i /><i /><i /><i /><i /><span>20 kHz</span></div>
+            <EqResponseGraph eq={settings.eq} />
           </section>
 
           <section className="panel dynamics-panel">
@@ -617,7 +617,7 @@ export default function App() {
   </div>;
 }
 
-function RangeControl({ label, value, min, max, step, format, onChange }: { label: string; value: number; min: number; max: number; step: number; format: (value: number) => string; onChange: (value: number) => void }) {
+function RangeControl({ label, value, min, max, step, format, onChange, vertical = false }: { label: string; value: number; min: number; max: number; step: number; format: (value: number) => string; onChange: (value: number) => void; vertical?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(value));
   const skipBlurCommit = useRef(false);
@@ -647,7 +647,7 @@ function RangeControl({ label, value, min, max, step, format, onChange }: { labe
     setEditing(false);
   }
 
-  return <div className="range-control"><span className="range-label"><span>{label}</span>
+  return <div className={`range-control${vertical ? " eq-band" : ""}`}><span className="range-label"><span>{label}</span>
     {editing
       ? <input className="range-value-input" type="text" inputMode="decimal" autoFocus value={draft} aria-label={`Ange ${label}`} onChange={(event) => setDraft(event.target.value)} onBlur={handleBlur} onKeyDown={(event) => {
         if (event.key === "Enter") {
@@ -661,8 +661,104 @@ function RangeControl({ label, value, min, max, step, format, onChange }: { labe
       }} />
       : <output title="Dubbelklicka för att ange värde" onDoubleClick={beginEditing}>{format(value)}</output>}
   </span>
-    <input className="range-slider" type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} onDoubleClick={beginEditing} aria-label={label} title="Dubbelklicka för att ange värde" />
+    <input className={`range-slider${vertical ? " range-slider-vertical" : ""}`} type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} onDoubleClick={beginEditing} aria-label={label} title="Dubbelklicka för att ange värde" />
     <span className="range-endpoints"><small>{format(min)}</small><small>{format(max)}</small></span></div>;
+}
+
+function EqResponseGraph({ eq }: { eq: AudioSettings["eq"] }) {
+  const graphLeft = 42;
+  const graphRight = 704;
+  const graphTop = 12;
+  const graphBottom = 145;
+  const graphRange = 24;
+  const points = Array.from({ length: 121 }, (_, index) => {
+    const frequency = 20 * (20_000 / 20) ** (index / 120);
+    const response = getEqResponse(frequency, eq);
+    const x = graphLeft + (index / 120) * (graphRight - graphLeft);
+    const y = graphTop + ((graphRange - Math.max(-graphRange, Math.min(graphRange, response))) / (graphRange * 2)) * (graphBottom - graphTop);
+    return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const description = `Equalizerkurva: bas ${eq.low} dB, låga mellanregister ${eq.lowMid} dB, höga mellanregister ${eq.highMid} dB, diskant ${eq.high} dB.`;
+
+  return <svg className="eq-response" viewBox="0 0 720 184" role="img" aria-label={description}>
+    <title>{description}</title>
+    {[12, 0, -12].map((level) => {
+      const y = graphTop + ((graphRange - level) / (graphRange * 2)) * (graphBottom - graphTop);
+      return <g key={level}>
+        <line x1={graphLeft} x2={graphRight} y1={y} y2={y} className={level === 0 ? "eq-zero-line" : "eq-grid-line"} />
+        <text x="34" y={y + 3} textAnchor="end">{level > 0 ? `+${level}` : level} dB</text>
+      </g>;
+    })}
+    {[["20 Hz", 20], ["100 Hz", 100], ["1 kHz", 1000], ["10 kHz", 10_000], ["20 kHz", 20_000]].map(([label, frequency]) => {
+      const x = graphLeft + (Math.log(Number(frequency) / 20) / Math.log(20_000 / 20)) * (graphRight - graphLeft);
+      return <g key={label}>
+        <line x1={x} x2={x} y1={graphTop} y2={graphBottom} className="eq-grid-line" />
+        <text x={x} y="169" textAnchor="middle">{label}</text>
+      </g>;
+    })}
+    <path d={points} className="eq-response-line" />
+  </svg>;
+}
+
+function getEqResponse(frequency: number, eq: AudioSettings["eq"]) {
+  const bands = [
+    { type: "lowshelf", frequency: 120, gain: eq.low, q: 1 },
+    { type: "peaking", frequency: 500, gain: eq.lowMid, q: 0.7 },
+    { type: "peaking", frequency: 2_500, gain: eq.highMid, q: 0.7 },
+    { type: "highshelf", frequency: 8_000, gain: eq.high, q: 1 },
+  ];
+  return bands.reduce((total, band) => {
+    const [b0, b1, b2, a0, a1, a2] = getEqFilterCoefficients(band.type, band.frequency, band.gain, band.q);
+    const omega = (2 * Math.PI * frequency) / 48_000;
+    const realNumerator = b0 + b1 * Math.cos(omega) + b2 * Math.cos(2 * omega);
+    const imaginaryNumerator = -b1 * Math.sin(omega) - b2 * Math.sin(2 * omega);
+    const realDenominator = a0 + a1 * Math.cos(omega) + a2 * Math.cos(2 * omega);
+    const imaginaryDenominator = -a1 * Math.sin(omega) - a2 * Math.sin(2 * omega);
+    const magnitude = Math.hypot(realNumerator, imaginaryNumerator) / Math.hypot(realDenominator, imaginaryDenominator);
+    return total + 20 * Math.log10(magnitude);
+  }, 0);
+}
+
+function getEqFilterCoefficients(type: string, frequency: number, gain: number, q: number): [number, number, number, number, number, number] {
+  const omega = (2 * Math.PI * frequency) / 48_000;
+  const cosine = Math.cos(omega);
+  const sine = Math.sin(omega);
+  const amplitude = 10 ** (gain / 40);
+  let b0: number;
+  let b1: number;
+  let b2: number;
+  let a0: number;
+  let a1: number;
+  let a2: number;
+
+  if (type === "peaking") {
+    const alpha = sine / (2 * q);
+    b0 = 1 + alpha * amplitude;
+    b1 = -2 * cosine;
+    b2 = 1 - alpha * amplitude;
+    a0 = 1 + alpha / amplitude;
+    a1 = -2 * cosine;
+    a2 = 1 - alpha / amplitude;
+  } else {
+    const beta = sine * Math.sqrt(2 * amplitude);
+    if (type === "lowshelf") {
+      b0 = amplitude * ((amplitude + 1) - (amplitude - 1) * cosine + beta);
+      b1 = 2 * amplitude * ((amplitude - 1) - (amplitude + 1) * cosine);
+      b2 = amplitude * ((amplitude + 1) - (amplitude - 1) * cosine - beta);
+      a0 = (amplitude + 1) + (amplitude - 1) * cosine + beta;
+      a1 = -2 * ((amplitude - 1) + (amplitude + 1) * cosine);
+      a2 = (amplitude + 1) + (amplitude - 1) * cosine - beta;
+    } else {
+      b0 = amplitude * ((amplitude + 1) + (amplitude - 1) * cosine + beta);
+      b1 = -2 * amplitude * ((amplitude - 1) + (amplitude + 1) * cosine);
+      b2 = amplitude * ((amplitude + 1) + (amplitude - 1) * cosine - beta);
+      a0 = (amplitude + 1) - (amplitude - 1) * cosine + beta;
+      a1 = 2 * ((amplitude - 1) - (amplitude + 1) * cosine);
+      a2 = (amplitude + 1) - (amplitude - 1) * cosine - beta;
+    }
+  }
+
+  return [b0 / a0, b1 / a0, b2 / a0, 1, a1 / a0, a2 / a0];
 }
 
 function GainReductionMeter({ label, ariaLabel, value }: { label: string; ariaLabel: string; value: number }) {
