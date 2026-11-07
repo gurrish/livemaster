@@ -1,6 +1,6 @@
 import { TableClient, type TableEntity } from "@azure/data-tables";
 import { BlobServiceClient } from "@azure/storage-blob";
-import { audioSettingsSchema, environmentSchema, presetInputSchema, type AudioSettings, type AudioTrack, type Environment, type Preset, type PresetInput, type StoredAudioTrack } from "./domain.js";
+import { audioSettingsSchema, presetInputSchema, type AudioSettings, type AudioTrack, type Preset, type PresetInput, type StoredAudioTrack } from "./domain.js";
 
 export interface Repository {
   listPresets(): Promise<Preset[]>;
@@ -10,7 +10,7 @@ export interface Repository {
   listTracks(): Promise<AudioTrack[]>;
   getTrack(id: string): Promise<AudioTrack | undefined>;
   saveTrack(track: AudioTrack, bytes: Buffer): Promise<void>;
-  updateTrackSettings(id: string, settings: AudioSettings, environment: Environment): Promise<void>;
+  updateTrackSettings(id: string, settings: AudioSettings): Promise<void>;
   stageTrackChunk(id: string, index: number, bytes: Buffer): Promise<void>;
   readStagedTrack(id: string, chunkCount: number): Promise<Buffer | undefined>;
   deleteStagedTrack(id: string): Promise<void>;
@@ -29,7 +29,6 @@ function fromEntity(entity: StoredPreset): Preset {
   const input = presetInputSchema.parse({
     name: entity.name,
     settings,
-    environment: entity.environment,
   });
   return { ...input, id: entity.rowKey, updatedAt: entity.updatedAt };
 }
@@ -62,9 +61,9 @@ export class MemoryRepository implements Repository {
   async saveTrack(track: AudioTrack, bytes: Buffer): Promise<void> {
     this.tracks.set(track.id, { track: structuredClone(track), bytes: Buffer.from(bytes) });
   }
-  async updateTrackSettings(id: string, settings: AudioSettings, environment: Environment): Promise<void> {
+  async updateTrackSettings(id: string, settings: AudioSettings): Promise<void> {
     const stored = this.tracks.get(id);
-    if (stored) stored.track = { ...stored.track, settings: structuredClone(settings), environment, updatedAt: new Date().toISOString() };
+    if (stored) stored.track = { ...stored.track, settings: structuredClone(settings), updatedAt: new Date().toISOString() };
   }
   async stageTrackChunk(id: string, index: number, bytes: Buffer): Promise<void> {
     const chunks = this.stagedTracks.get(id) ?? new Map<number, Buffer>();
@@ -161,7 +160,6 @@ export class TableRepository implements Repository {
     }
     const track: AudioTrack = { id: entity.rowKey, name: entity.name, size: entity.size, updatedAt: entity.updatedAt };
     if (typeof entity.settings === "string") track.settings = audioSettingsSchema.parse(JSON.parse(entity.settings));
-    if (typeof entity.environment === "string") track.environment = environmentSchema.parse(entity.environment);
     return track;
   }
 
@@ -201,7 +199,6 @@ export class TableRepository implements Repository {
         size: track.size,
         updatedAt: track.updatedAt,
         ...(track.settings ? { settings: JSON.stringify(track.settings) } : {}),
-        ...(track.environment ? { environment: track.environment } : {}),
       }, "Replace");
     } catch (error) {
       await container.getBlockBlobClient(track.id).deleteIfExists();
@@ -209,7 +206,7 @@ export class TableRepository implements Repository {
     }
   }
 
-  async updateTrackSettings(id: string, settings: AudioSettings, environment: Environment): Promise<void> {
+  async updateTrackSettings(id: string, settings: AudioSettings): Promise<void> {
     const track = await this.getTrack(id);
     if (!track) return;
     await this.ensureTrackTable();
@@ -220,7 +217,6 @@ export class TableRepository implements Repository {
       size: track.size,
       updatedAt: new Date().toISOString(),
       settings: JSON.stringify(settings),
-      environment,
     }, "Replace");
   }
 

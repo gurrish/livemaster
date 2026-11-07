@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { AudioLines, Download, LogIn, LogOut, Pause, Play, RotateCcw, Save, ShieldCheck, Trash2, Upload, Volume2, X } from "lucide-react";
 import { createPreset, deletePreset, deleteTrack, downloadTrack, getPresets, getTracks, getViewer, updatePreset, updateTrackSettings, uploadTrack } from "./lib/api";
 import { analyzeLoudness, connectAudioEffects, renderWav, updateAudioEffects, type LoudnessAnalysis } from "./lib/audio";
-import type { AudioSettings, Environment, Preset, PresetInput, Viewer } from "./types";
+import type { AudioSettings, Preset, PresetInput, Viewer } from "./types";
 
 const initialSettings: AudioSettings = {
   eq: { low: 0, lowMid: 0, highMid: 0, high: 0 },
@@ -11,14 +11,6 @@ const initialSettings: AudioSettings = {
   mono: false,
   pan: 0,
 };
-
-const environments: { id: Environment; label: string; description: string }[] = [
-  { id: "studio", label: "Studio", description: "Neutral referens" },
-  { id: "car", label: "Bil", description: "Lätt bas- och närvarolyft" },
-  { id: "phone", label: "Mobil", description: "Begränsat frekvensomfång" },
-  { id: "laptop", label: "Dator", description: "Tunnare bas" },
-  { id: "headphones", label: "Hörlurar", description: "Mjukare närvaro" },
-];
 
 const maxFileSize = 100 * 1024 * 1024;
 const spotifyTargetLufs = -14;
@@ -34,7 +26,6 @@ export default function App() {
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const [presetName, setPresetName] = useState("");
   const [settings, setSettings] = useState<AudioSettings>(initialSettings);
-  const [environment, setEnvironment] = useState<Environment>("studio");
   const [bypassed, setBypassed] = useState(false);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [fileName, setFileName] = useState("");
@@ -68,8 +59,8 @@ export default function App() {
   const startedAt = useRef(0);
   const playbackOffset = useRef(0);
   const selectedFile = useRef<HTMLInputElement>(null);
-  const trackSettingsKey = JSON.stringify({ settings, environment });
-  const loudnessKey = JSON.stringify({ settings, environment, bypassed });
+  const trackSettingsKey = JSON.stringify(settings);
+  const loudnessKey = JSON.stringify({ settings, bypassed });
   const analysisMatchesCurrentAudio = loudnessAnalysis?.audioBuffer === audioBuffer && loudnessAnalysis.key === loudnessKey;
   const currentLoudness = analysisMatchesCurrentAudio ? loudnessAnalysis.result : null;
   const normalizationGain = normalizeToSpotify && currentLoudness ? currentLoudness.normalizationGain : 1;
@@ -97,10 +88,8 @@ export default function App() {
       setFileName(track.name);
       setLocalFile(null);
       const restoredSettings = track.settings ?? initialSettings;
-      const restoredEnvironment = track.environment ?? "studio";
       setSettings(restoredSettings);
-      setEnvironment(restoredEnvironment);
-      savedTrackSettings.current = JSON.stringify({ settings: restoredSettings, environment: restoredEnvironment });
+      savedTrackSettings.current = JSON.stringify(restoredSettings);
       setCurrentTrackId(track.id);
       setPlayhead(0);
       setNotice(`”${track.name}” öppnades från Azure-lagringen.`);
@@ -118,8 +107,8 @@ export default function App() {
     setError("");
     setNotice("");
     try {
-      const saved = await uploadTrack(localFile, settings, environment, setUploadProgress);
-      savedTrackSettings.current = JSON.stringify({ settings, environment });
+      const saved = await uploadTrack(localFile, settings, setUploadProgress);
+      savedTrackSettings.current = JSON.stringify(settings);
       setTracks((current) => [saved, ...current]);
       setCurrentTrackId(saved.id);
       setLocalFile(null);
@@ -175,8 +164,8 @@ export default function App() {
   useEffect(() => { void loadWorkspace(); }, []);
 
   useEffect(() => {
-    updateAudioEffects(effects.current, audioContext.current, settings, environment, bypassed, normalizationGain);
-  }, [settings, environment, bypassed, normalizationGain]);
+    updateAudioEffects(effects.current, audioContext.current, settings, bypassed, normalizationGain);
+  }, [settings, bypassed, normalizationGain]);
 
   useEffect(() => {
     const requestId = ++loudnessRequest.current;
@@ -188,7 +177,7 @@ export default function App() {
 
     setLoudnessStatus("analyzing");
     const timer = window.setTimeout(() => {
-      void analyzeLoudness(audioBuffer, settings, environment, bypassed).then((result) => {
+      void analyzeLoudness(audioBuffer, settings, bypassed).then((result) => {
         if (loudnessRequest.current !== requestId) return;
         setLoudnessAnalysis({ audioBuffer, key: loudnessKey, result });
         setLoudnessStatus("ready");
@@ -201,20 +190,19 @@ export default function App() {
       window.clearTimeout(timer);
       loudnessRequest.current += 1;
     };
-  }, [audioBuffer, settings, environment, bypassed, loudnessKey]);
+  }, [audioBuffer, settings, bypassed, loudnessKey]);
 
   useEffect(() => {
     if (!viewer.isAdmin || !currentTrackId || trackSettingsKey === savedTrackSettings.current) return;
     const trackId = currentTrackId;
     const settingsToSave = settings;
-    const environmentToSave = environment;
     const settingsKey = trackSettingsKey;
     const timer = window.setTimeout(() => {
       trackSettingsSaveQueue.current = trackSettingsSaveQueue.current.then(async () => {
         if (activeTrackId.current !== trackId || activeTrackSettings.current !== settingsKey) return;
         setSavingTrackSettings(true);
         try {
-          const updated = await updateTrackSettings(trackId, settingsToSave, environmentToSave);
+          const updated = await updateTrackSettings(trackId, settingsToSave);
           setTracks((current) => current.map((track) => track.id === trackId ? updated : track));
           if (activeTrackId.current === trackId && activeTrackSettings.current === settingsKey) {
             savedTrackSettings.current = settingsKey;
@@ -229,7 +217,7 @@ export default function App() {
       });
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [currentTrackId, settings, environment, trackSettingsKey, viewer.isAdmin]);
+  }, [currentTrackId, settings, trackSettingsKey, viewer.isAdmin]);
 
   useEffect(() => {
     if (!playing) return;
@@ -298,7 +286,7 @@ export default function App() {
       const player = context.createBufferSource();
       player.buffer = audioBuffer;
       player.loop = true;
-      effects.current = connectAudioEffects(player, context, settings, environment, bypassed, normalizationGain);
+      effects.current = connectAudioEffects(player, context, settings, bypassed, normalizationGain);
       setGainReduction({ compressor: 0, limiter: 0 });
       source.current = player;
       const offset = currentTimeRef.current >= audioBuffer.duration ? 0 : currentTimeRef.current;
@@ -347,7 +335,6 @@ export default function App() {
 
   function resetSettings() {
     setSettings(initialSettings);
-    setEnvironment("studio");
     setSelectedPresetId("");
     setPresetName("");
   }
@@ -357,7 +344,6 @@ export default function App() {
     setPresetName(preset?.name ?? "");
     if (preset) {
       setSettings(preset.settings);
-      setEnvironment(preset.environment);
     }
   }
 
@@ -370,7 +356,7 @@ export default function App() {
     setSavingPreset(true);
     setError("");
     setNotice("");
-    const input: PresetInput = { name, settings, environment };
+    const input: PresetInput = { name, settings };
     try {
       const saved = updateExisting && selectedPresetId
         ? await updatePreset(selectedPresetId, input)
@@ -408,7 +394,7 @@ export default function App() {
     setExporting(true);
     setError("");
     try {
-      const rendered = await renderWav(audioBuffer, settings, environment, bypassed, normalizationGain);
+      const rendered = await renderWav(audioBuffer, settings, bypassed, normalizationGain);
       const link = document.createElement("a");
       link.href = URL.createObjectURL(rendered);
       const safeName = fileName.replace(/[\u0000-\u001f<>:"/\\|?*]/g, "_").replace(/\.wav$/i, "") || "livemaster";
@@ -472,7 +458,7 @@ export default function App() {
         <div>
           <span className="eyebrow"><span className="status-dot" /> ANALOG SIGNALKEDJA · DIGITAL PRECISION</span>
           <h1>Lyssna.<br /><em>Justera. Jämför.</em></h1>
-          <p>Ladda en WAV-fil, prova equalizer och dynamik och jämför hur mixen låter i olika lyssningsmiljöer.</p>
+          <p>Ladda en WAV-fil, justera equalizer och dynamik och exportera en bearbetad mix.</p>
         </div>
         <div className="intro-art" aria-hidden="true"><div className="meter meter-one"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><div className="meter meter-two"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><div className="intro-disc"><AudioLines size={52} strokeWidth={1} /></div><span className="intro-caption">CLASS A · ANALOGT TÄNK · DIGITALT ARBETE</span></div>
         <div className="intro-foot"><span>EQ · KOMPRESSOR · LIMITER</span><span>UPPSPELNING · WAV-EXPORT</span><span>01 / LJUDVERKTYG</span></div>
@@ -544,7 +530,7 @@ export default function App() {
                 <p className="privacy-note"><ShieldCheck size={14} /> Förinställningar delas av administratörer och sparas på servern.</p>
               </>
               : <div className="preset-access">
-                <p className="panel-help">Equalizer, dynamik och miljöinställningar kan användas utan inloggning. Delade förinställningar kräver administratörsbehörighet.</p>
+                <p className="panel-help">Equalizer och dynamik kan användas utan inloggning. Delade förinställningar kräver administratörsbehörighet.</p>
                 {!viewer.signedIn && <button className="button button-dark" onClick={signIn}><LogIn size={15} /> Logga in som administratör</button>}
                 {viewer.signedIn && <p className="privacy-note">Kontot {viewer.email ?? ""} saknar administratörsbehörighet.</p>}
               </div>}
@@ -554,8 +540,8 @@ export default function App() {
             <div className="panel-heading"><div><span className="eyebrow">03 / FREKVENS</span><h2>Equalizer</h2></div><span className="unit-tag">±12 dB</span></div>
             <div className="eq-controls">
               <RangeControl vertical label="Bas" value={settings.eq.low} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("low", value)} />
-              <RangeControl vertical label="Låga mellanregister" value={settings.eq.lowMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("lowMid", value)} />
-              <RangeControl vertical label="Höga mellanregister" value={settings.eq.highMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("highMid", value)} />
+              <RangeControl vertical label="Låg-mid" value={settings.eq.lowMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("lowMid", value)} />
+              <RangeControl vertical label="Hög-mid" value={settings.eq.highMid} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("highMid", value)} />
               <RangeControl vertical label="Diskant" value={settings.eq.high} min={-12} max={12} step={0.5} format={(value) => `${value > 0 ? "+" : ""}${value} dB`} onChange={(value) => updateEq("high", value)} />
             </div>
             <EqResponseGraph eq={settings.eq} />
@@ -579,14 +565,8 @@ export default function App() {
             <p className="panel-help">Sist i signalkedjan och begränsar signalens toppar.</p>
           </section>
 
-          <section className="panel environment-panel">
-            <div className="panel-heading"><div><span className="eyebrow">06 / LYSSNINGSTEST</span><h2>Lyssningsmiljö</h2></div><span className="panel-index">A/B</span></div>
-            <div className="environment-grid">{environments.map((item) => <button key={item.id} className={`environment-option${environment === item.id ? " selected" : ""}`} onClick={() => setEnvironment(item.id)} aria-pressed={environment === item.id}><span>{item.label}</span><small>{item.description}</small></button>)}</div>
-            <p className="simulation-note">En förenklad frekvenssimulering i webbläsaren – motsvarar inte mätningar från en viss enhet.</p>
-          </section>
-
           <section className="panel loudness-panel">
-            <div className="panel-heading"><div><span className="eyebrow">07 / LOUDNESS</span><h2>Ljudstyrka</h2></div><span className="unit-tag">LUFS</span></div>
+            <div className="panel-heading"><div><span className="eyebrow">06 / LOUDNESS</span><h2>Ljudstyrka</h2></div><span className="unit-tag">LUFS</span></div>
             <div className="loudness-readout">
               <span>Integrerad nivå</span>
               <strong>{loudnessStatus === "analyzing" ? "Analyserar…" : loudnessStatus === "error" ? "Kunde inte mäta" : currentLoudness?.integratedLufs === null || !currentLoudness ? "— LUFS" : `${currentLoudness.integratedLufs.toFixed(1)} LUFS`}</strong>

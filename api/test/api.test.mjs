@@ -85,7 +85,6 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
       mono: false,
       pan: 0,
     },
-    environment: "studio",
   };
   const uploaded = await handle(request(`/api/uploads/${uploadId}/complete`, "POST", {
     ...adminHeaders,
@@ -99,21 +98,21 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
   assert.equal(track.name, "mix.wav");
   assert.equal(track.size, wav.length);
   assert.deepEqual(track.settings, initialTrackSettings.settings);
-  assert.equal(track.environment, "studio");
+  assert.equal("environment" in track, false);
 
   const updatedTrackResponse = await handle(request(`/api/tracks/${track.id}/settings`, "PUT", {
     ...adminHeaders,
     "content-type": "application/json",
-  }, JSON.stringify({ ...initialTrackSettings, environment: "car" })), context);
+  }, JSON.stringify(initialTrackSettings)), context);
   assert.equal(updatedTrackResponse.status, 200);
   const updatedTrack = await updatedTrackResponse.json();
-  assert.equal(updatedTrack.environment, "car");
+  assert.equal("environment" in updatedTrack, false);
 
-  const invalidTrackSettings = await handle(request(`/api/tracks/${track.id}/settings`, "PUT", {
+  const removedEnvironmentSetting = await handle(request(`/api/tracks/${track.id}/settings`, "PUT", {
     ...adminHeaders,
     "content-type": "application/json",
-  }, JSON.stringify({ ...initialTrackSettings, environment: "spaceship" })), context);
-  assert.equal(invalidTrackSettings.status, 400);
+  }, JSON.stringify({ ...initialTrackSettings, environment: "studio" })), context);
+  assert.equal(removedEnvironmentSetting.status, 400);
 
   const oversized = await handle(request(`/api/uploads/${uploadId}/complete`, "POST", {
     ...adminHeaders,
@@ -137,7 +136,6 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
       mono: false,
       pan: 0,
     },
-    environment: "studio",
   };
   const createdPreset = await handle(request("/api/presets", "POST", {
     ...adminHeaders,
@@ -148,6 +146,7 @@ test("admin-only WAV and preset API validates, stores, reads and deletes data", 
   assert.equal(preset.name, "Mix A");
   assert.equal(preset.settings.eq.lowMid, 3);
   assert.equal(preset.settings.eq.highMid, 4);
+  assert.equal("environment" in preset, false);
 
   const legacyPresetInput = {
     ...presetInput,

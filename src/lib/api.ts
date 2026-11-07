@@ -1,4 +1,4 @@
-import type { AudioSettings, AudioTrack, Environment, Preset, PresetInput, Viewer } from "../types";
+import type { AudioSettings, AudioTrack, Preset, PresetInput, Viewer } from "../types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -26,7 +26,6 @@ const uploadChunkSize = 8 * 1024 * 1024;
 export async function uploadTrack(
   file: File,
   settings: AudioSettings,
-  environment: Environment,
   onProgress?: (progress: number) => void,
 ): Promise<AudioTrack> {
   const uploadId = crypto.randomUUID();
@@ -49,7 +48,7 @@ export async function uploadTrack(
         "x-file-size": String(file.size),
         "x-chunk-count": String(chunkCount),
       },
-      body: JSON.stringify({ settings, environment }),
+      body: JSON.stringify({ settings }),
     });
     onProgress?.(100);
     return track;
@@ -64,10 +63,10 @@ export async function uploadTrack(
     throw error;
   }
 }
-export const updateTrackSettings = (id: string, settings: AudioSettings, environment: Environment) =>
+export const updateTrackSettings = (id: string, settings: AudioSettings) =>
   request<AudioTrack>(`/api/tracks/${encodeURIComponent(id)}/settings`, {
     method: "PUT",
-    body: JSON.stringify({ settings, environment }),
+    body: JSON.stringify({ settings }),
   });
 export const deleteTrack = (id: string) => request<{ ok: true }>(`/api/tracks/${encodeURIComponent(id)}`, { method: "DELETE" });
 

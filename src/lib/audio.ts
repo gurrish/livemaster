@@ -1,12 +1,4 @@
-import type { AudioSettings, Environment } from "../types";
-
-const profiles: Record<Environment, { lowCut: number; highCut: number; bass: number; presence: number }> = {
-  studio: { lowCut: 20, highCut: 20_000, bass: 0, presence: 0 },
-  car: { lowCut: 35, highCut: 16_000, bass: 2, presence: 1 },
-  phone: { lowCut: 250, highCut: 7_000, bass: 0, presence: 2 },
-  laptop: { lowCut: 130, highCut: 14_000, bass: 0, presence: 1 },
-  headphones: { lowCut: 35, highCut: 18_000, bass: 0, presence: -1 },
-};
+import type { AudioSettings } from "../types";
 
 interface EffectNodes {
   low: BiquadFilterNode;
@@ -15,9 +7,6 @@ interface EffectNodes {
   high: BiquadFilterNode;
   compressor: DynamicsCompressorNode;
   limiter: DynamicsCompressorNode;
-  environmentLow: BiquadFilterNode;
-  environmentMid: BiquadFilterNode;
-  environmentHigh: BiquadFilterNode;
   hardCeiling: WaveShaperNode;
   dry: GainNode;
   wet: GainNode;
@@ -34,7 +23,7 @@ function setValue(parameter: AudioParam, value: number, context: BaseAudioContex
   parameter.setTargetAtTime(value, context.currentTime, 0.015);
 }
 
-function createEffects(context: BaseAudioContext, settings: AudioSettings, environment: Environment, bypassed: boolean, outputGain: number): EffectNodes {
+function createEffects(context: BaseAudioContext, settings: AudioSettings, bypassed: boolean, outputGain: number): EffectNodes {
   const low = context.createBiquadFilter();
   low.type = "lowshelf";
   low.frequency.value = 120;
@@ -58,16 +47,6 @@ function createEffects(context: BaseAudioContext, settings: AudioSettings, envir
   limiter.attack.value = 0.003;
   limiter.release.value = 0.1;
 
-  const environmentLow = context.createBiquadFilter();
-  environmentLow.type = "highpass";
-  environmentLow.Q.value = 0.707;
-  const environmentMid = context.createBiquadFilter();
-  environmentMid.type = "peaking";
-  environmentMid.frequency.value = 2_000;
-  environmentMid.Q.value = 0.7;
-  const environmentHigh = context.createBiquadFilter();
-  environmentHigh.type = "lowpass";
-  environmentHigh.Q.value = 0.707;
   const hardCeiling = context.createWaveShaper();
   hardCeiling.oversample = "4x";
   const dry = context.createGain();
@@ -85,8 +64,8 @@ function createEffects(context: BaseAudioContext, settings: AudioSettings, envir
   wet.gain.value = bypassed ? 0 : 1;
   output.gain.value = outputGain;
 
-  const nodes = { low, lowMid, highMid, high, compressor, limiter, environmentLow, environmentMid, environmentHigh, hardCeiling, dry, wet, output, splitter, merger, leftFromLeft, leftFromRight, rightFromLeft, rightFromRight };
-  updateEffects(nodes, context, settings, environment, bypassed, outputGain);
+  const nodes = { low, lowMid, highMid, high, compressor, limiter, hardCeiling, dry, wet, output, splitter, merger, leftFromLeft, leftFromRight, rightFromLeft, rightFromRight };
+  updateEffects(nodes, context, settings, bypassed, outputGain);
   output.connect(splitter);
   splitter.connect(leftFromLeft, 0);
   splitter.connect(leftFromRight, 1);
@@ -100,7 +79,7 @@ function createEffects(context: BaseAudioContext, settings: AudioSettings, envir
   return nodes;
 }
 
-function updateEffects(nodes: EffectNodes, context: BaseAudioContext, settings: AudioSettings, environment: Environment, bypassed: boolean, outputGain: number) {
+function updateEffects(nodes: EffectNodes, context: BaseAudioContext, settings: AudioSettings, bypassed: boolean, outputGain: number) {
   setValue(nodes.low.gain, settings.eq.low, context);
   setValue(nodes.lowMid.gain, settings.eq.lowMid, context);
   setValue(nodes.highMid.gain, settings.eq.highMid, context);
@@ -111,13 +90,7 @@ function updateEffects(nodes: EffectNodes, context: BaseAudioContext, settings: 
   setValue(nodes.compressor.release, settings.compressor.release, context);
   setValue(nodes.limiter.threshold, settings.limiterCeiling, context);
 
-  const profile = profiles[environment];
-  setValue(nodes.environmentLow.frequency, profile.lowCut, context);
-  setValue(nodes.environmentMid.gain, profile.presence, context);
-  setValue(nodes.environmentHigh.frequency, profile.highCut, context);
-  setValue(nodes.environmentLow.Q, 0.707, context);
-  setValue(nodes.environmentHigh.Q, 0.707, context);
-  setValue(nodes.low.gain, settings.eq.low + profile.bass, context);
+  setValue(nodes.low.gain, settings.eq.low, context);
   const ceiling = bypassed ? 1 : 10 ** (settings.limiterCeiling / 20);
   const curve = new Float32Array(32_769);
   for (let index = 0; index < curve.length; index += 1) {
@@ -142,11 +115,10 @@ export function connectAudioEffects(
   source: AudioNode,
   context: BaseAudioContext,
   settings: AudioSettings,
-  environment: Environment,
   bypassed = false,
   outputGain = 1,
 ): EffectNodes {
-  const nodes = createEffects(context, settings, environment, bypassed, outputGain);
+  const nodes = createEffects(context, settings, bypassed, outputGain);
   source.connect(nodes.dry);
   nodes.dry.connect(nodes.output);
   source.connect(nodes.low);
@@ -155,10 +127,7 @@ export function connectAudioEffects(
   nodes.highMid.connect(nodes.high);
   nodes.high.connect(nodes.compressor);
   nodes.compressor.connect(nodes.limiter);
-  nodes.limiter.connect(nodes.environmentLow);
-  nodes.environmentLow.connect(nodes.environmentMid);
-  nodes.environmentMid.connect(nodes.environmentHigh);
-  nodes.environmentHigh.connect(nodes.hardCeiling);
+  nodes.limiter.connect(nodes.hardCeiling);
   nodes.hardCeiling.connect(nodes.wet);
   nodes.wet.connect(nodes.output);
   return nodes;
@@ -168,23 +137,21 @@ export function updateAudioEffects(
   nodes: EffectNodes | null,
   context: BaseAudioContext | null,
   settings: AudioSettings,
-  environment: Environment,
   bypassed: boolean,
   outputGain = 1,
 ) {
-  if (nodes && context) updateEffects(nodes, context, settings, environment, bypassed, outputGain);
+  if (nodes && context) updateEffects(nodes, context, settings, bypassed, outputGain);
 }
 
 async function renderAudio(
   input: AudioBuffer,
   settings: AudioSettings,
-  environment: Environment,
   bypassed: boolean,
 ): Promise<AudioBuffer> {
   const context = new OfflineAudioContext(input.numberOfChannels, input.length, input.sampleRate);
   const source = context.createBufferSource();
   source.buffer = input;
-  connectAudioEffects(source, context, settings, environment, bypassed);
+  connectAudioEffects(source, context, settings, bypassed);
   source.start();
   return context.startRendering();
 }
@@ -299,10 +266,9 @@ export interface LoudnessAnalysis {
 export async function analyzeLoudness(
   input: AudioBuffer,
   settings: AudioSettings,
-  environment: Environment,
   bypassed: boolean,
 ): Promise<LoudnessAnalysis> {
-  const rendered = await renderAudio(input, settings, environment, bypassed);
+  const rendered = await renderAudio(input, settings, bypassed);
   let peak = 0;
   for (let channel = 0; channel < rendered.numberOfChannels; channel += 1) {
     const data = rendered.getChannelData(channel);
@@ -323,11 +289,10 @@ export async function analyzeLoudness(
 export async function renderWav(
   input: AudioBuffer,
   settings: AudioSettings,
-  environment: Environment,
   bypassed: boolean,
   outputGain = 1,
 ): Promise<Blob> {
-  const rendered = await renderAudio(input, settings, environment, bypassed);
+  const rendered = await renderAudio(input, settings, bypassed);
   const channels = rendered.numberOfChannels;
   const samples = rendered.length;
   const bytes = new ArrayBuffer(44 + samples * channels * 2);

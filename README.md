@@ -1,19 +1,19 @@
 # Livemaster
 
-Livemaster is a browser-based audio testing workspace for WAV mixes. Anyone can adjust a four-band EQ with low and high mids, compressor and limiter; listen in mono or pan left and right; repeat playback until stopped; compare processed and bypassed audio with a one-click A/B switch; audition simplified listening-environment profiles; and export a processed WAV file. Administrators can also save shared presets and WAV files to Azure. The interface is in Swedish, with a dark mixing-console faceplate and a warm vintage-style EQ section.
+Livemaster is a browser-based audio testing workspace for WAV mixes. Anyone can adjust a four-band EQ with low and high mids, compressor and limiter; listen in mono or pan left and right; repeat playback until stopped; compare processed and bypassed audio with a one-click A/B switch; and export a processed WAV file. Administrators can also save shared presets and WAV files to Azure. The interface is in Swedish, with a dark mixing-console faceplate and a warm vintage-style EQ section.
 
 ## Architecture
 
 - React, TypeScript and Vite frontend.
 - Azure Static Web Apps with its integrated Azure Functions API.
 - Static Web Apps Microsoft Entra ID sign-in. Every preset and audio-file API operation checks the trusted Static Web Apps principal against `GLOBAL_ADMIN_EMAILS`.
-- Azure Table Storage stores shared processing presets and WAV-file metadata, including the last-used settings and listening environment for each saved WAV.
+- Azure Table Storage stores shared processing presets and WAV-file metadata, including the last-used settings for each saved WAV.
 - A private Azure Blob Storage container stores the WAV files. Files are served only through the authenticated API; storage URLs and credentials are never sent to the browser.
 - Bicep provisions Azure Static Web Apps, Storage Account and Application Insights. GitHub Actions deploy the app and infrastructure using OIDC.
 
 The managed Functions API uses the server-side `STORAGE_CONNECTION_STRING` configured by Bicep. Shared-key access is enabled for the Storage Account to support this integration. Do not expose or commit the key.
 
-WAV files are decoded and processed in the browser. Anyone can load a local file, use the audio tools, and export a processed WAV without signing in. The workspace reports K-weighted integrated loudness in LUFS and can normalize toward Spotify's commonly referenced -14 LUFS level, constrained by the configured peak ceiling. This is a comparison target, not a guarantee of how Spotify will play a track. Azure uploads and shared presets require an administrator account. WAV files up to 100 MiB can be uploaded to Azure in 8 MiB chunks to stay below the Static Web Apps API request-size limit. EQ, compression, limiting and WAV export use the Web Audio API. The device profiles are simplified frequency-response simulations, not measured models of specific speakers or headphones.
+WAV files are decoded and processed in the browser. Anyone can load a local file, use the audio tools, and export a processed WAV without signing in. The workspace reports K-weighted integrated loudness in LUFS and can normalize toward Spotify's commonly referenced -14 LUFS level, constrained by the configured peak ceiling. This is a comparison target, not a guarantee of how Spotify will play a track. Azure uploads and shared presets require an administrator account. WAV files up to 100 MiB can be uploaded to Azure in 8 MiB chunks to stay below the Static Web Apps API request-size limit. EQ, compression, limiting and WAV export use the Web Audio API.
 
 ## Local development
 

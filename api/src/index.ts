@@ -215,7 +215,7 @@ export async function handle(request: HttpRequest, context: InvocationContext): 
         if (!parsed.success) throw new HttpError(400, "Kontrollera ljudinställningarna.");
         const track = await repo.getTrack(id);
         if (!track) throw new HttpError(404, "Ljudfilen hittades inte.");
-        await repo.updateTrackSettings(id, parsed.data.settings, parsed.data.environment);
+        await repo.updateTrackSettings(id, parsed.data.settings);
         return json({
           ...track,
           ...parsed.data,

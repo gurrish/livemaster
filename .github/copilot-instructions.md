@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Livemaster is an administrator-only browser audio testing workspace. Administrators load WAV files, adjust EQ, compression and limiting, compare simplified listening-environment profiles, save shared presets and export processed WAV files. The interface is exclusively Swedish.
+Livemaster is an administrator-only browser audio testing workspace. Administrators load WAV files, adjust EQ, compression and limiting, save shared presets and export processed WAV files. The interface is exclusively Swedish.
 
 The frontend is React, TypeScript and Vite. The backend is an Azure Functions API integrated with Azure Static Web Apps. Azure Table Storage holds presets and audio-file metadata; WAV bytes are stored in a private Azure Blob container. Azure resources use Bicep and GitHub Actions deploy with OIDC.
 
@@ -11,7 +11,7 @@ The frontend is React, TypeScript and Vite. The backend is an Azure Functions AP
 - `src/App.tsx`: administrator access gate and audio workspace.
 - `src/lib/audio.ts`: Web Audio API processing graph and WAV rendering.
 - `src/lib/api.ts`: typed API calls for viewer, presets and WAV tracks.
-- `src/types.ts`: audio settings, environments, presets, tracks and viewer types.
+- `src/types.ts`: audio settings, presets, tracks and viewer types.
 - `api/src/domain.ts`: Zod schemas and server-side types.
 - `api/src/index.ts`: HTTP API, trusted Static Web Apps identity parsing and admin authorization.
 - `api/src/repository.ts`: in-memory development repository and Azure Table/Blob persistence.
@@ -28,7 +28,6 @@ The frontend is React, TypeScript and Vite. The backend is an Azure Functions AP
 - Validate uploaded WAV size and RIFF/WAVE signature server-side. Store bytes only in the private `audio-tracks` Blob container; never return storage URLs or credentials to the browser.
 - Keep shared preset fields, server schemas, frontend types and README documentation in sync.
 - Only accounts whose trusted email is listed in `GLOBAL_ADMIN_EMAILS` may access preset or WAV APIs. `x-dev-user-email` is accepted only when `DEV_AUTH=true` and `NODE_ENV` is not `production`.
-- Environment simulations are illustrative frequency profiles, not measured emulations. Do not describe them as accurate models of specific devices.
 
 ## Build and validation
 

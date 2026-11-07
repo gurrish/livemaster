@@ -1,5 +1,3 @@
-export type Environment = "studio" | "car" | "phone" | "laptop" | "headphones";
-
 export interface AudioSettings {
   eq: {
     low: number;
@@ -22,14 +20,12 @@ export interface Preset {
   id: string;
   name: string;
   settings: AudioSettings;
-  environment: Environment;
   updatedAt: string;
 }
 
 export interface PresetInput {
   name: string;
   settings: AudioSettings;
-  environment: Environment;
 }
 
 export interface AudioTrack {
@@ -38,7 +34,6 @@ export interface AudioTrack {
   size: number;
   updatedAt: string;
   settings?: AudioSettings;
-  environment?: Environment;
 }
 
 export interface Viewer {
